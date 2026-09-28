@@ -8,9 +8,6 @@ by hand.
 from __future__ import annotations
 
 import json
-import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TextIO
@@ -18,7 +15,13 @@ from typing import TextIO
 
 @dataclass(frozen=True)
 class Usage:
-    """One provider call."""
+    """One provider call.
+
+    ``latency_ms`` and ``total_latency_ms`` are deliberately distinct. Quoting a p95
+    without saying which one it is makes the number meaningless: the first covers a
+    single provider round trip, the second covers the whole request including retries
+    and backoff. A user waiting on the request feels the second one.
+    """
 
     request_id: str
     provider: str
@@ -26,6 +29,7 @@ class Usage:
     prompt_tokens: int
     completion_tokens: int
     latency_ms: float
+    total_latency_ms: float
     cost_usd: float
     cache_hit: bool = False
     verified: bool = False
@@ -35,6 +39,11 @@ class Usage:
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
+
+    @property
+    def overhead_ms(self) -> float:
+        """Time spent retrying and waiting on backoff, never on a provider."""
+        return max(0.0, self.total_latency_ms - self.latency_ms)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
@@ -84,24 +93,6 @@ class UsageRecorder:
     def record(self, usage: Usage) -> None:
         self._stream.write(usage.to_json() + "\n")
         self._stream.flush()
-
-    @contextmanager
-    def timed(self, **fields: object) -> Iterator[dict[str, object]]:
-        """Measure a provider call and fill in latency.
-
-        Usage:
-
-            with recorder.timed(request_id=..., provider=..., model=...) as slot:
-                response = client.complete(...)
-                slot["prompt_tokens"] = response.prompt_tokens
-                slot["completion_tokens"] = response.completion_tokens
-        """
-        slot: dict[str, object] = dict(fields)
-        started = time.perf_counter()
-        try:
-            yield slot
-        finally:
-            slot.setdefault("latency_ms", (time.perf_counter() - started) * 1000)
 
     def close(self) -> None:
         self._stream.close()

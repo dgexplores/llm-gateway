@@ -69,6 +69,7 @@ class LLMClient:
         costs: CostTable | None = None,
         *,
         sleep=time.sleep,
+        monotonic=time.perf_counter,
         rng: random.Random | None = None,
     ):
         if not providers:
@@ -77,7 +78,11 @@ class LLMClient:
         self.recorder = recorder
         self.costs = costs or CostTable()
         self.breakers = {p.name: CircuitBreaker() for p in providers}
+        # Injected so latency assertions are deterministic in tests. A real sleep in
+        # the test path would make the suite slow and flaky in exactly the place
+        # where a flaky test is least welcome.
         self._sleep = sleep
+        self._monotonic = monotonic
         self._rng = rng or random.Random()
 
     def complete(
@@ -89,6 +94,7 @@ class LLMClient:
         cache_hit: bool = False,
     ) -> Completion:
         errors: dict[str, str] = {}
+        request_started = self._monotonic()
 
         for provider in self.providers:
             breaker = self.breakers[provider.name]
@@ -98,6 +104,10 @@ class LLMClient:
                 continue
 
             for attempt in range(1, MAX_ATTEMPTS + 1):
+                # The clock must wrap the call itself. Starting it after the call
+                # returns yields a latency of approximately zero, which is worse than
+                # no metric at all: it looks like a real number in a results table.
+                attempt_started = self._monotonic()
                 try:
                     completion = provider.complete(messages, temperature=temperature)
                 except ProviderError as exc:
@@ -111,7 +121,15 @@ class LLMClient:
                     continue
 
                 breaker.record_success()
-                self._record(request_id, provider, completion, cache_hit, attempt)
+                self._record(
+                    request_id,
+                    provider,
+                    completion,
+                    cache_hit,
+                    attempt,
+                    latency_ms=(self._monotonic() - attempt_started) * 1000,
+                    total_latency_ms=(self._monotonic() - request_started) * 1000,
+                )
                 return completion
 
             breaker.record_failure()
@@ -129,8 +147,10 @@ class LLMClient:
         completion: Completion,
         cache_hit: bool,
         attempt: int,
+        *,
+        latency_ms: float,
+        total_latency_ms: float,
     ) -> None:
-        started = time.perf_counter()
         self.recorder.record(
             Usage(
                 request_id=request_id,
@@ -138,7 +158,8 @@ class LLMClient:
                 model=completion.model,
                 prompt_tokens=completion.prompt_tokens,
                 completion_tokens=completion.completion_tokens,
-                latency_ms=(time.perf_counter() - started) * 1000,
+                latency_ms=latency_ms,
+                total_latency_ms=total_latency_ms,
                 cost_usd=self.costs.cost(
                     provider.name,
                     completion.model,

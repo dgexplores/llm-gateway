@@ -9,6 +9,8 @@ from .llm.base import (
     require_api_key,
 )
 from .llm.client import CircuitBreaker, LLMClient
+from .llm.ollama import OllamaProvider
+from .llm.openai import OpenAIProvider
 
 __all__ = [
     "Cache",
@@ -19,6 +21,8 @@ __all__ = [
     "LLMClient",
     "Message",
     "NullCache",
+    "OllamaProvider",
+    "OpenAIProvider",
     "Provider",
     "ProviderError",
     "ProviderExhausted",

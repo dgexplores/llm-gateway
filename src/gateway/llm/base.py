@@ -55,7 +55,17 @@ class ProviderExhausted(ProviderError):
 
 @runtime_checkable
 class Provider(Protocol):
-    """Anything that can turn messages into a completion."""
+    """Anything that can turn messages into a completion.
+
+    Contract, checked by tests rather than asserted at runtime:
+
+    - Must raise ``ProviderError`` on failure. Anything else escaping ``complete`` is
+      a bug in the provider, not a condition the client can retry against.
+    - ``retryable=False`` means "do not retry": a 401 or a malformed request will not
+      succeed on a second identical attempt, and retrying only adds latency.
+    - ``model`` must be stable for the lifetime of the instance, because it keys the
+      cost table and the cache namespace.
+    """
 
     name: str
 

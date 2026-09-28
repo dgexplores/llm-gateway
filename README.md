@@ -11,10 +11,14 @@ planned in [PLAN.md](PLAN.md). Design rationale in
 ## What it does today
 
 ```python
-from gateway import LLMClient, InMemoryCache, Message, UsageRecorder, CostTable
+from pathlib import Path
 
+from gateway import LLMClient, Message, OllamaProvider, OpenAIProvider, UsageRecorder
+
+# Ordered by preference. A local model first means the gateway is demonstrable
+# with no credentials at all.
 with UsageRecorder(path=Path(".usage.jsonl")) as recorder:
-    client = LLMClient([openai_provider, anthropic_provider], recorder, CostTable())
+    client = LLMClient([OllamaProvider.from_env(), OpenAIProvider.from_env()], recorder)
     answer = client.complete([Message.user("hi")], request_id="r1")
 ```
 
@@ -22,8 +26,30 @@ with UsageRecorder(path=Path(".usage.jsonl")) as recorder:
 - Raises `ProviderExhausted` rather than returning a fabricated answer.
 - Opens a circuit breaker after repeated failures so a dead provider stops adding
   latency to every request.
-- Writes exactly one usage record per provider call: tokens, latency, cost, attempt
-  number. `docs/RESULTS.md` is generated from these records, not written by hand.
+- Retries only what can succeed on a second attempt: 429 and 5xx, never a 401.
+- Writes exactly one usage record per provider call. `docs/RESULTS.md` is generated
+  from these records, not written by hand.
+
+### Latency is recorded twice, on purpose
+
+| Field | Measures | Use it for |
+|---|---|---|
+| `latency_ms` | one provider round trip | comparing providers |
+| `total_latency_ms` | the whole request, including retries and backoff | the p95 a user actually waits |
+
+Quoting a p95 without saying which one it is makes the number unanswerable in an
+interview. `Usage.overhead_ms` exposes the difference directly.
+
+## Providers
+
+| Provider | Credentials | Notes |
+|---|---|---|
+| `OllamaProvider` | none | Local. The default, so the project runs with no setup |
+| `OpenAIProvider` | optional | Speaks the OpenAI wire format, so vLLM, Groq, Together and LM Studio work unchanged |
+| `Provider` protocol | — | Your own: implement `complete` and nothing else changes |
+
+`test_providers.py` covers the status-to-retryability table, which is where a wrong
+decision costs real latency.
 
 ## Development
 

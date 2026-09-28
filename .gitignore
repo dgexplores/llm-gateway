@@ -6,7 +6,16 @@ __pycache__/
 dist/
 build/
 
+# Tool caches. Not ignored by default; committing them adds churn on every run and
+# makes `git status` useless for spotting real changes.
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
 # Runtime artefacts
 .usage.jsonl
 .cache/
 results/
+.lightrag/
