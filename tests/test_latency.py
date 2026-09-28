@@ -101,9 +101,7 @@ def test_real_wall_clock_latency_is_positive() -> None:
     rec, stream = recorder()
     provider = SlowProvider("p", duration_s=0.05)
 
-    LLMClient([provider], rec, sleep=lambda _: None).complete(
-        [Message.user("hi")], request_id="r1"
-    )
+    LLMClient([provider], rec, sleep=lambda _: None).complete([Message.user("hi")], request_id="r1")
 
     assert parse(stream)[0]["latency_ms"] >= 45.0
 

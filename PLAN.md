@@ -70,6 +70,21 @@ surface area without adding signal.
 | 3 | 4, 5 | Verification and a CI gate that catches regressions |
 | 4 | 6 | Full stack, demo video, README |
 
+## Status
+
+Module 1 complete. Module 2 not started.
+
+Shipped: provider failover with circuit breaking, usage accounting, cache, the
+`Retriever` contract, chunking, `BM25Retriever`, and an evaluation harness whose CI
+gate refuses to run over unreviewed questions.
+
+**No published number yet, deliberately.** A provisional run over 51 unreviewed
+questions gave BM25 nDCG@10 ≈ 0.89, p95 2.7 ms, over 1,448 chunks from 155
+documents. That confirmed the harness works and exposed a mis-scaled metric (nDCG
+could exceed 1.0, now bounded and regression-tested). The result file was deleted
+rather than published, because an unreviewed set is not evidence. The next step is
+human review, after which the same command produces a publishable number.
+
 ## Resume bullets
 
 Numbers are placeholders. Fill them from `docs/RESULTS.md` only after the run

@@ -4,9 +4,13 @@ A resilient gateway between an application and an LLM provider. It owns the four
 things that break in production and get ignored in demos: provider failure, repeated
 cost, unsupported answers, and missing traces.
 
-**Status:** Modules 1–2 complete (client with retry and failover, cache). Modules 3–6
-planned in [PLAN.md](PLAN.md). Design rationale in
+**Status:** Module 1 complete (resilient client, cache, retrieval, evaluation
+harness). Module 2 planned in [PLAN.md](PLAN.md). Design rationale in
 [ARCHITECTURE.md](ARCHITECTURE.md).
+
+> **No results published yet, on purpose.** The evaluation harness runs, but its CI
+> gate refuses to execute over unreviewed questions. See
+> [Why there are no numbers](#why-there-are-no-numbers-yet).
 
 ## What it does today
 
@@ -51,20 +55,72 @@ interview. `Usage.overhead_ms` exposes the difference directly.
 `test_providers.py` covers the status-to-retryability table, which is where a wrong
 decision costs real latency.
 
+## Retrieval
+
+The boundary between "find relevant text" and "answer the question" is explicit, so a
+retriever can be swapped and compared without touching generation.
+
+```python
+from gateway.rag import BM25Retriever, chunk_corpus, load_documents
+
+chunks = chunk_corpus(load_documents(Path("corpus")))
+retriever = BM25Retriever.build(chunks)
+
+for hit in retriever.retrieve("how do i add a response header", k=5):
+    print(f"{hit.score:6.3f}  {hit.doc_id}  {hit.text[:60]}...")
+```
+
+`Retriever` is a `Protocol` with four implementations so far: `NullRetriever` (RAG
+off), `BM25Retriever`, and later the hybrid and graph retrievers. A retriever that
+finds nothing returns an empty list — never low-scoring filler, because the generator
+treats the chunk list as ground truth.
+
+## Evaluating a retriever
+
+```bash
+./scripts/fetch_corpus.sh              # pinned FastAPI docs, MIT, 155 files
+uv run python -m gateway.rag.label     # propose questions from the corpus
+#   a human reviews each row and sets "review": "OK"
+uv run python -m gateway.rag.promote    # only OK rows reach the gate
+uv run python scripts/run_eval.py      # nDCG@10, recall@10, MRR, hit@10, p95
+```
+
+Metrics are split by whether they are deterministic:
+
+| Metric | Deterministic | Gates CI |
+|---|---|---|
+| nDCG@10, recall@10, MRR, hit@10 | yes | **yes** |
+| Faithfulness, answer quality | no (LLM-judged) | no |
+
+A non-deterministic metric used as a gate produces flaky failures that teams learn to
+retry past, which is worse than no gate: it costs time while catching nothing.
+
+### Provenance-derived labels
+
+Each question is written *from* a specific section, so `relevant_doc_ids` is a fact
+about how the question was constructed rather than an annotator's guess. That turns a
+five-hour annotation task into a review task, and makes the labels checkable. Only the
+answer text needs human eyes.
+
 ## Development
 
 ```bash
 uv sync --group dev          # core only, no heavy ML deps
-uv run pytest                # gateway suite, no network required
+uv run pytest                # 112 tests, no network required
 uv run ruff check .
 ```
 
-Optional extras: `uv sync --extra rag` (embeddings, reranking, NLI), `--extra serve`
+Optional extras: `--extra rag` (embeddings, reranking, NLI), `--extra serve`
 (FastAPI), `--extra cache` (Redis).
 
-## Why the numbers are not here yet
+## Why there are no numbers yet
 
-No retrieval, cost, or latency figure appears in this README until a run has produced
-it. The eval harness (Module 5) writes `docs/RESULTS.md` from usage records; every
-claim on the resume comes from that file. An unmeasured number is a liability in an
-interview.
+A provisional run over 51 unreviewed questions produced BM25 nDCG@10 ≈ 0.89 at 2.7 ms
+p95 across 1,448 chunks. It did two useful things: it proved the harness works, and it
+exposed that nDCG could exceed 1.0 when a retriever returned many chunks from one
+document (now bounded, with a regression test). The result file was then **deleted**,
+because the questions had not been verified by a human.
+
+That is the operating rule: `docs/RESULTS.md` is generated from usage records and a
+human-reviewed golden set, never written by hand. An unmeasured number is a liability
+in an interview, and an unverified one is worse.

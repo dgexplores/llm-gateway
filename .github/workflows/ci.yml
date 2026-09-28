@@ -20,11 +20,32 @@ jobs:
       - name: Test
         run: uv run pytest -q
 
-  # Placeholder for the Module 5 eval gate. It stays inert until the RAG harness
-  # lands, at which point it becomes the thing that fails a pull request when
-  # nDCG@10 regresses by more than 2%.
+  # The retrieval gate. It only runs once a human has reviewed and promoted the
+  # golden set, because a gate over unreviewed questions measures nothing and would
+  # still be treated as authoritative.
+  rag-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked --group dev
+      - name: Check the reviewed golden set exists
+        run: |
+          if [ ! -f evals/goldens.jsonl ]; then
+            echo "evals/goldens.jsonl is absent."
+            echo "Run: uv run python -m gateway.rag.label, review each row, then"
+            echo "     uv run python -m gateway.rag.promote"
+            exit 1
+          fi
+      - name: Fetch the pinned corpus
+        run: ./scripts/fetch_corpus.sh
+      - name: Retrieval gate
+        run: uv run python scripts/run_eval.py
+
+  # The comparison gate lands with the hybrid retriever. Until there is a baseline to
+  # regress against, a gate has nothing to compare.
   #
-  #   - name: RAG eval gate
-  #     run: uv run python -m gateway.eval.ablation --variant reranked --subset ci
-  #     if: always()
-  #     continue-on-error: false
+  #   - name: Regression gate
+  #     run: uv run python scripts/gate.py --max-drop 0.02

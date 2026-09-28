@@ -19,3 +19,7 @@ htmlcov/
 .cache/
 results/
 .lightrag/
+
+# Corpus is vendored, not committed. Re-fetched from a pinned commit; committing
+# 155 vendored files would bury every real change in the diff.
+corpus/
