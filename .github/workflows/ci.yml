@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked --group dev
+      - name: Lint
+        run: uv run ruff check .
+      - name: Test
+        run: uv run pytest -q
+
+  # Placeholder for the Module 5 eval gate. It stays inert until the RAG harness
+  # lands, at which point it becomes the thing that fails a pull request when
+  # nDCG@10 regresses by more than 2%.
+  #
+  #   - name: RAG eval gate
+  #     run: uv run python -m gateway.eval.ablation --variant reranked --subset ci
+  #     if: always()
+  #     continue-on-error: false

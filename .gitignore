@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# Runtime artefacts
+.usage.jsonl
+.cache/
+results/
