@@ -198,6 +198,23 @@ function renderAudit(payload) {
   if (audit.revisions) parts.push(`${audit.revisions} revision`);
   $("audit-text").textContent = parts.join(" · ");
 
+  /* Grounding is not relevance. Each sentence here really does appear in the
+     retrieved passage, and the strip would still read "verified" on an answer to a
+     question the corpus cannot address — ask about Kubernetes ingress and the
+     verifier happily grounds three sentences from the Docker chapter.
+
+     Lexical overlap was measured as a relevance gate and rejected: across the 51
+     in-corpus questions the overlap ranged 0.167-0.667, and off-topic questions
+     scored up to 0.500 — higher than the in-corpus median. A threshold there would
+     abstain on good questions and answer bad ones.
+
+     So the limit is stated where it is read, rather than papered over with a gate that
+     does not work. */
+  const scope = $("audit-scope");
+  scope.hidden = false;
+  scope.textContent =
+    "Checks that each sentence appears in the sources. It does not check that the sources answer your question.";
+
   box.dataset.tone = payload.abstained ? "bad" : audit.unsupported ? "warn" : "ok";
 }
 
