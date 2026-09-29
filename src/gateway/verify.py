@@ -62,6 +62,27 @@ def normalize(tokens: set[str]) -> set[str]:
     return {_singular(t) for t in tokens}
 
 
+def _entailment_index(id2label: dict[int, str] | dict[str, str] | None) -> int:
+    """Which logit means "entailed", from the model's own label map.
+
+    Read by name because the order is not standardised across NLI checkpoints, and
+    guessing a position is how this class was silently wrong. A model whose labels do
+    not include an entailment class is not an NLI model, and guessing anyway would be
+    worse than refusing.
+    """
+    if not id2label:
+        raise ValueError("model has no id2label; cannot locate the entailment class")
+
+    normalised = {int(k): str(v).lower() for k, v in id2label.items()}
+    for index, label in normalised.items():
+        if label.startswith("entail"):
+            return index
+    raise ValueError(
+        f"no entailment class in model labels {id2label!r}; "
+        "this does not look like an NLI cross-encoder"
+    )
+
+
 @dataclass(frozen=True)
 class Verdict:
     """The outcome for one claim."""
@@ -69,6 +90,10 @@ class Verdict:
     supported: bool
     score: float
     reason: str
+    # Which model produced the verdict. Separate from `reason` because `reason` is shown
+    # to a reader as the explanation — "8/8 words present" — and a model name there is
+    # not an explanation.
+    model: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {"supported": self.supported, "score": round(self.score, 4), "reason": self.reason}
@@ -151,6 +176,14 @@ class NliVerifier:
     constructor argument, not a rewrite. ``import`` happens inside ``__init__`` so the
     module can be imported - and the rest of the gateway used - with no ML stack
     installed.
+
+    The entailment probability is read by resolving the label index from the model's
+    ``id2label``, never by position. The first version of this read ``probabilities[-1]``,
+    which is *neutral* for the cross-encoders this is used with, not entailment. It
+    passed every test because no test ran it: it was defined, imported, and never
+    executed, so a verdict that was inverted for every input looked identical to a
+    correct one. Measured on ``cross-encoder/nli-distilroberta-base``, a claim the model
+    entails scores 0.992 at the entailment index and 0.007 at the one being read.
     """
 
     name = "nli"
@@ -175,14 +208,20 @@ class NliVerifier:
         self._model = AutoModelForSequenceClassification.from_pretrained(model_name)
         self._model.eval()
         self._model_name = model_name
+        self.entailment_index = _entailment_index(self._model.config.id2label)
 
-    def check(self, claim: str, context: str) -> Verdict:  # pragma: no cover - heavy
+    def check(self, claim: str, context: str) -> Verdict:
         inputs = self._tokenizer(
-            claim, context, return_tensors="pt", truncation=True, max_length=512
+            context, claim, return_tensors="pt", truncation=True, max_length=512
         )
         with self._torch.no_grad():
             logits = self._model(**inputs).logits
 
         probabilities = self._torch.softmax(logits, dim=-1)[0]
-        entailment = float(probabilities[-1])
-        return Verdict(entailment >= self.threshold, entailment, self._model_name)
+        entailment = float(probabilities[self.entailment_index])
+        return Verdict(
+            entailment >= self.threshold,
+            entailment,
+            f"nli entailment {entailment:.2f}",
+            self._model_name,
+        )

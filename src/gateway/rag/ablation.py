@@ -24,8 +24,10 @@ from .eval import (
     regression_gate,
     render_table,
 )
+from .hybrid import HybridRetriever
 from .ingest import chunk_corpus, load_documents
 from .retriever import NullRetriever, Retriever
+from .tfidf import TFIDFRetriever
 
 CORPUS_DIR = Path("corpus")
 GOLDENS_PATH = Path("evals/goldens.jsonl")
@@ -83,6 +85,20 @@ def variants() -> list[Variant]:
             "bm25_short",
             "BM25 over 400-char chunks (1/3 the baseline size)",
             bm25(target_chars=400, overlap_chars=60),
+        ),
+        # Rank fusion was implemented and never measured, which is the worst state a
+        # component can be in: it looks like a feature and behaves like an assumption.
+        # Both members see the same corpus, so the only thing varying is how the two
+        # rankings are combined.
+        Variant(
+            "hybrid",
+            "reciprocal-rank fusion of BM25 and TF-IDF cosine",
+            lambda docs: HybridRetriever(
+                [
+                    BM25Retriever.build(chunk_corpus(docs)),
+                    TFIDFRetriever.build(chunk_corpus(docs)),
+                ]
+            ),
         ),
     ]
 

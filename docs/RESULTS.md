@@ -5,11 +5,15 @@ Every number in this file comes from a committed run of `scripts/run_eval.py` or
 
 ## Golden set
 
-**51 questions, mechanically verified — not hand-verified.**
+**63 questions, mechanically verified — not hand-verified.** 51 single-hop plus 12
+multi-document.
 
 `gateway.rag.verify_set` checks each proposed answer against the document its label
 cites: the answer's content words must be at least 75% present in that document, and no
-two answers may be near-duplicates. 51 of 51 passed.
+two answers may be near-duplicates. 63 of 63 passed. The multi-document answers are
+composed of sentences pulled from the corpus by exact substring match, and
+`scripts/build_multihop.py` exits non-zero if a match is missing, so no answer in the
+set was written by hand.
 
 That number is only meaningful because the verifier was shown to reject. The control
 cases in `tests/test_verify_set.py` assert that a fabricated answer, an answer citing the
@@ -24,8 +28,10 @@ is therefore described as *mechanically verified* throughout, never as *hand-ver
 
 ### Known weaknesses in this set
 
-- **All 51 questions are single-hop.** The difficulty breakdown collapses to one row, so
-  it measures nothing yet. Multi-hop and no-answer questions are the next thing to add.
+- **The multi-document rows are not multi-hop reasoning.** 11 of 12 are answerable from
+  one document covering 75% of the answer. The label is `multi-doc` for that reason.
+- **No-answer questions are not in the retrieval table.** They have no relevant document,
+  so nDCG is undefined for them. They are measured separately, by abstention rate, below.
 - **Questions are generated from the corpus**, so the set inherits the corpus's
   vocabulary. This favours lexical retrieval and understates the gap a dense retriever
   would close.
@@ -38,21 +44,46 @@ Corpus: 155 FastAPI documents, 1,448 chunks.
 
 | retriever | nDCG@10 | recall@10 | MRR | hit@10 | p95 ms | n |
 |---|---|---|---|---|---|---|
-| `none` (control) | 0.000 | 0.000 | 0.000 | 0.000 | 0.0 | 51 |
-| `bm25` (baseline) | **0.891** | 0.922 | 0.846 | 0.922 | 3.5 | 51 |
+| `none` (control) | 0.000 | 0.000 | 0.000 | 0.000 | 0.0 | 63 |
+| `bm25` (baseline) | **0.869** | 0.905 | 0.828 | 0.921 | 2.7 | 63 |
 
 The `none` row is the point of the table. A retriever that returns nothing scores zero,
 so the baseline's 0.891 is measuring retrieval rather than the shape of the metric.
+
+### By difficulty
+
+| difficulty | n | nDCG@10 |
+|---|---|---|
+| single-hop | 51 | 0.891 |
+| multi-doc | 12 | 0.777 |
+
+The multi-document questions score 0.114 lower, which
+is the expected direction: recall has to surface two documents, so there are more ways to
+miss. These come from `per_difficulty` in `docs/results/bm25.json`.
+
+The `multi-doc` rows are questions whose answers draw on two documents, so recall has to
+find both. They are **not** multi-hop reasoning questions, and the label says `multi-doc`
+for that reason: measured against the corpus, 11 of the 12 have one document that already
+covers 75% or more of the answer. Calling them multi-hop would claim more than the set
+tests.
 
 ## Ablation
 
 | retriever | nDCG@10 | recall@10 | MRR | hit@10 | p95 ms |
 |---|---|---|---|---|---|
-| `bm25_no_overlap` | 0.883 | 0.941 | 0.845 | 0.941 | 1.9 |
-| `bm25_long` (2400 chars) | 0.877 | **0.961** | 0.829 | **0.961** | 1.4 |
-| `bm25_short` (400 chars) | 0.871 | 0.902 | 0.819 | 0.902 | 4.8 |
+| `bm25_no_overlap` | 0.868 | 0.921 | 0.843 | 0.937 | 1.9 |
+| `bm25_long` (2400 chars) | 0.860 | 0.937 | 0.801 | **0.952** | 1.4 |
+| `bm25_short` (400 chars) | 0.834 | 0.873 | 0.787 | 0.905 | 5.6 |
+| `hybrid` (BM25 + TF-IDF RRF) | 0.852 | 0.905 | 0.800 | 0.937 | 5.4 |
 
-**The baseline does not win.** It is a middle point on a precision/recall trade-off, not
+**Rank fusion does not help here, and costs double.** Fusing BM25 with a TF-IDF cosine
+retriever scored *below* BM25 alone (0.852 vs 0.869) at twice the latency. Two lexical
+rankers over the same corpus produce highly correlated orderings, so there is little for
+reciprocal-rank fusion to recover. The component is real and tested; the combination is
+not worth its cost on this corpus. It would need a genuinely orthogonal second member —
+a dense retriever — to have a chance, and that is a dependency with an API key attached.
+
+****The baseline does not win.** It is a middle point on a precision/recall trade-off, not
 an optimum:
 
 - Larger chunks retrieve the right document more often (recall 0.961 vs 0.922) but
@@ -68,6 +99,102 @@ Choosing the baseline as "best" because it has the top nDCG would be selecting o
 metric rather than on the use case. For a gateway that shows the reader the retrieved
 passages, recall is the metric that matters: a missing document cannot be shown to
 anyone.
+
+## Abstention on questions the corpus cannot answer
+
+**0 of 8. The gateway answered every one, and reported every one as grounded.**
+
+Run it yourself:
+
+```bash
+uv run python scripts/abstention.py --json docs/results/abstention.json
+```
+
+| question | abstained | grounded |
+|---|---|---|
+| How do I configure a Kubernetes ingress controller for blue-green deployments? | no | yes |
+| What is the capital of Australia? | no | yes |
+| How do I bake sourdough bread at home? | no | yes |
+| Explain quantum entanglement to a five year old. | no | yes |
+| What is the difference between TCP and UDP? | no | yes |
+| Who won the 1998 FIFA World Cup? | no | yes |
+| How do I calculate the standard deviation of a list in Rust? | no | yes |
+| What is the current price of a Raspberry Pi? | no | yes |
+
+This is not hallucination. Every sentence returned really does appear in a retrieved
+passage, which is exactly what the verifier checks and exactly what the UI now labels
+**Grounded** rather than **Verified**. What is missing is any check that the passages
+address the question.
+
+Two candidate gates were measured and both are rejected. Both distributions overlap, so
+a threshold would abstain on good questions while still answering bad ones:
+
+| signal | answerable (n=63) | unanswerable (n=8) | separates? |
+|---|---|---|---|
+| question ↔ retrieved passage overlap | 0.167 – 0.667 | 0.000 – 0.500 | no |
+| question ↔ generated answer overlap | 0.000 – 0.667 (median 0.200) | 0.000 – 0.200 | no |
+
+The second is the more tempting of the two and still fails: the unanswerable maximum
+equals the answerable median.
+
+The honest conclusion is that **this system cannot detect an out-of-corpus question**
+without a model that judges semantic relevance, and no such model is wired up. The
+abstention trigger in the pipeline fires when the generator writes a claim the passages
+do not support; with the extractive demo provider that essentially never happens, because
+the provider quotes the passages by construction.
+
+This is the most important limitation in the repository, and the footer no longer claims
+otherwise.
+
+## Verifier comparison: is the NLI upgrade worth it?
+
+The obvious upgrade from lexical overlap is a cross-encoder that judges entailment rather
+than word presence. It is implemented, it loads, and it is not usable. Both verifiers were
+run over the same 120 claims, all drawn from the context the pipeline actually retrieves:
+
+- 60 ``supported`` — a sentence present in the retrieved context, so the right answer is yes.
+- 60 ``swapped`` — a real corpus sentence from a *different* question's context, judged
+  against this one. Its vocabulary is equally ordinary and it is still false.
+
+| verifier | accepts true | accepts swapped |
+|---|---|---|
+| `overlap` (shipped) | **60/60** | 1/60 |
+| `nli` (cross-encoder) | **0/60** | 0/60 |
+
+The NLI verifier rejects every true claim. It is not slightly worse; it is unusable, and
+the reason is specific:
+
+| premise | length | entailment |
+|---|---|---|
+| the claim itself | ~110 chars | 0.991 |
+| three sentences, containing the claim | ~230 chars | 0.984 |
+| the full rendered multi-source context | ~1,100 chars | 0.004 – 0.018 |
+
+The model handles a claim quoted against a short premise and collapses once the premise is
+the full multi-source context the pipeline hands it. Held constant while the premise grows,
+the same verbatim claim falls from 0.99 to 0.004. Swapping it in would make the gateway
+abstain on essentially everything.
+
+```bash
+uv run python scripts/verifier_comparison.py --json docs/results/verifiers.json
+```
+
+A per-source variant might work, since ~230 chars is fine, but that is not what the
+pipeline does and it is not what was measured.
+
+### The bug this work uncovered
+
+`NliVerifier` read `probabilities[-1]` as the entailment probability. For the
+cross-encoders this is used with, that index is **neutral**; entailment is index 1,
+resolved from the model's `id2label`. Every verdict was inverted — an entailed claim
+scored 0.992 at the right index and 0.007 at the one being read.
+
+Nothing caught it, because the class was defined, imported, and never executed. The only
+test was `hasattr(module, "NliVerifier")`, which passes just as happily against a class
+that is wrong in every case. The index is now resolved by label name, and a test pins the
+regression by asserting the entailment index is *not* the last one. The end-to-end tests
+need a checkpoint download, so they are opt-in via `GATEWAY_NLI_TESTS=1`; the index
+resolution is tested unconditionally.
 
 ## What is measured, and what is not
 
@@ -89,7 +216,7 @@ scheduling noise, and a gate on it would fail for reasons unrelated to the code.
 
 ## A provisional run, and why it was deleted
 
-An earlier run over the same 51 questions scored nDCG@10 **0.89** at **2.7 ms** p95.
+An earlier run over 51 single-hop questions scored nDCG@10 **0.89** at **2.7 ms** p95.
 That run was deleted because the questions had not been verified. A plausible number
 from an unverified set is worse than no number, because it looks like evidence.
 

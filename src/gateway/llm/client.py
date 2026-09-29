@@ -10,6 +10,7 @@ import random
 import time
 
 from ..accounting import CostTable, Usage, UsageRecorder
+from ..cache import Cache, InMemoryCache, NullCache
 from .base import Completion, Message, Provider, ProviderError, ProviderExhausted
 
 # Retried up to this many times per provider before failing over.
@@ -67,6 +68,7 @@ class LLMClient:
         providers: list[Provider],
         recorder: UsageRecorder,
         costs: CostTable | None = None,
+        cache: Cache | None = None,
         *,
         sleep=time.sleep,
         monotonic=time.perf_counter,
@@ -75,6 +77,10 @@ class LLMClient:
         if not providers:
             raise ValueError("at least one provider is required")
         self.providers = providers
+        # Caching is opt-in and off by default. The Cache and InMemoryCache classes were
+        # written, exported and unit-tested while nothing constructed one, so the
+        # project's cache hit rate was a claim about a component the pipeline never ran.
+        self.cache = cache or NullCache()
         self.recorder = recorder
         self.costs = costs or CostTable()
         self.breakers = {p.name: CircuitBreaker() for p in providers}
@@ -95,6 +101,24 @@ class LLMClient:
     ) -> Completion:
         errors: dict[str, str] = {}
         request_started = self._monotonic()
+
+        # ``cache_hit=True`` means the caller already has a cached completion and wants
+        # it recorded as one. Checking the cache under that flag would record every
+        # request twice.
+        if not cache_hit:
+            key = self._cache_key(messages)
+            cached = self.cache.get(key)
+            if cached is not None:
+                self._record(
+                    request_id,
+                    self.providers[0],
+                    cached,
+                    True,
+                    0,
+                    latency_ms=(self._monotonic() - request_started) * 1000,
+                    total_latency_ms=(self._monotonic() - request_started) * 1000,
+                )
+                return cached
 
         for provider in self.providers:
             breaker = self.breakers[provider.name]
@@ -121,6 +145,10 @@ class LLMClient:
                     continue
 
                 breaker.record_success()
+                # Only successful completions are cached. Caching a failure would make
+                # one bad provider call permanent for the process lifetime.
+                if not cache_hit:
+                    self.cache.put(self._cache_key(messages), completion)
                 self._record(
                     request_id,
                     provider,
@@ -135,6 +163,14 @@ class LLMClient:
             breaker.record_failure()
 
         raise ProviderExhausted(errors)
+
+    def _cache_key(self, messages: list[Message]) -> str:
+        """A key over the conversation and the configured model.
+
+        Built from the first provider's model, which is the one a cached entry would
+        have come from. Mixing models in one cache is the failure this guards against.
+        """
+        return InMemoryCache.key_for(messages, self.providers[0].model)
 
     @property
     def name(self) -> str:

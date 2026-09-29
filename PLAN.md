@@ -68,44 +68,88 @@ surface area without adding signal.
 | 1 | Resilient client, cache, usage accounting | yes |
 | 2 | Retrieval, evaluation harness, API, UI | yes |
 | 3 | Verification, abstention, hybrid fusion, ablation | yes |
-| 4 | Docker, demo recording, published results | blocked on human review |
+| 4 | Container image, published results, documentation | yes |
 
 ## Status
 
-Modules 1–3 complete. Module 4 (serving and documentation) is the last one, and part of
-it is done; see below.
+Complete, with two documented limitations rather than two open items.
 
-Shipped: provider failover with circuit breaking, usage accounting, cache, the
-`Retriever` contract, chunking, `BM25Retriever`, reciprocal-rank hybrid fusion, an
-evaluation harness whose CI gate refuses to run over unreviewed questions, a FastAPI
-service, a zero-build UI, and claim verification with calibrated abstention.
+Shipped: provider failover with circuit breaking, usage accounting, response cache, the
+`Retriever` contract, chunking, `BM25Retriever`, a TF-IDF cosine retriever, reciprocal-rank
+fusion, an evaluation harness whose CI gate refuses to run over unverified questions, a
+FastAPI service, a zero-build UI, claim-level verification with abstention, LangChain and
+LightRAG adapters, a multi-stage container image, and a measured result set.
 
-Remaining before the project is complete:
+Measured, on 63 mechanically verified questions over 155 documents:
 
-1. **Human review of the golden set** — 51 questions, ~20 minutes. This is the only
-   blocker on publishing a retrieval number, and it is the one thing the code cannot do
-   for itself.
-2. **Docker Compose** — Redis, Postgres, Phoenix. Optional: the service is fully
-   functional without it, and Docker is not installed on this machine.
-3. **A demo recording** — the UI is verified in a browser; a 30-second video is the
-   difference between a project someone reads and one someone watches.
+| retriever | nDCG@10 | recall@10 | p95 ms |
+|---|---|---|---|
+| `none` (control) | 0.000 | 0.000 | 0.0 |
+| `bm25` (baseline) | **0.869** | 0.905 | 2.7 |
+| `hybrid` (BM25 + TF-IDF) | 0.852 | 0.905 | 5.4 |
 
-**No published number yet, deliberately.** A provisional run over 51 unreviewed
-questions gave BM25 nDCG@10 ≈ 0.89, p95 2.7 ms, over 1,448 chunks from 155
-documents. That confirmed the harness works and exposed a mis-scaled metric (nDCG
-could exceed 1.0, now bounded and regression-tested). The result file was deleted
-rather than published, because an unreviewed set is not evidence. The next step is
-human review, after which the same command produces a publishable number.
+### Two limitations, both measured
+
+**1. The gateway cannot detect a question the corpus cannot answer.** On eight such
+questions it answered all eight and reported all eight as grounded: 0% abstention. Two
+candidate gates were measured and both rejected, because the answerable and unanswerable
+score distributions overlap completely. No grounding check can catch this, and the UI
+footer no longer claims it can. See `docs/RESULTS.md`.
+
+**2. The NLI verifier is not usable as a drop-in.** It rejects every true claim (0/60)
+because it collapses on the ~1,100-character multi-source context the pipeline supplies:
+the same claim scores 0.991 against a short premise and 0.004 against the real one.
+Lexical overlap stays the default, and the comparison is in `docs/RESULTS.md`.
+
+Neither is a task left undone. Both are results, and the honest thing is to publish them
+rather than build a gate that does not work.
+
+### Not built, on purpose
+
+- **A semantic-quality number.** The only embedding available without an API key is
+  `DeterministicFakeEmbedding`, whose vectors are random. Both adapters are tested for
+  mechanics; neither is measured for quality, and no published number uses them.
+- **A Docker build.** The image and compose file are written but Docker is not installed
+  here, so the image has never been built. The docs say so.
 
 ## Resume bullets
 
-Numbers are placeholders. Fill them from `docs/RESULTS.md` only after the run
-produces them. A number you did not measure is a liability in an interview.
+Every number below is from a committed run in `docs/results/`. A number that was not
+measured is a liability, so the two things this project does *not* do are stated in the
+same list as the things it does.
 
-- Built an LLM reliability gateway: multi-provider failover, semantic caching, and
-  token/cost accounting — p95 latency down __%, cache hit rate __%.
-- Benchmarked graph vs vector retrieval across __ modes × 2 frameworks on 50
-  hand-labeled multi-hop questions — __ nDCG@10.
-- Added per-claim NLI citation verification with calibrated abstention —
-  unsupported-claim rate __% → __%.
-- CI eval gate fails pull requests on an nDCG@10 regression above 2%.
+- Built an LLM reliability gateway: multi-provider failover with circuit breaking,
+  token/cost accounting, and claim-level citation verification. BM25 retrieval over
+  1,448 chunks from 155 documents scores **nDCG@10 0.869, recall@10 0.905, p95 2.7 ms**
+  against a no-retrieval control at 0.000, on 63 questions.
+- Measured what the response cache is worth instead of asserting it: **55.6% hit rate**
+  on a Zipf-shaped workload, 79 of 142 provider calls avoided. Found the cache was
+  implemented, unit-tested, and **never wired into the client**; a unit test of a class
+  cannot tell you nothing calls it.
+- Benchmarked 5 retrieval configurations and a **rank-fusion variant that lost** —
+  BM25 + TF-IDF scored 0.852 against BM25's 0.869 at twice the latency, because two
+  lexical rankers produce correlated rankings and there is nothing for fusion to recover.
+- Evaluated the obvious verification upgrade and rejected it on evidence: an NLI
+  cross-encoder scores **0/60** on claims the pipeline itself retrieved, because it
+  collapses from 0.991 to 0.004 as the premise grows to the real multi-source context.
+  Found and fixed an inverted logit index in the process, which no test had caught
+  because the class was never executed.
+- **Measured the product's main failure mode rather than hiding it.** On 8 questions the
+  corpus cannot answer, the gateway answered all 8 and reported all 8 as grounded —
+  0% abstention. Two candidate relevance gates were measured and both rejected for
+  overlapping score distributions. The UI footer previously claimed otherwise and was
+  corrected.
+- CI runs lint, 380 tests, a retrieval gate that refuses to execute without a verified
+  golden set, the ablation, and the abstention measurement.
+
+### Not claimed
+
+- **No multi-hop reasoning results.** The 12 multi-document questions need two documents
+  retrieved, but 11 of 12 are answerable from one, so they are labelled `multi-doc` and
+  the difficulty gap (0.891 → 0.777) is reported as a retrieval finding, not a reasoning
+  one.
+- **No semantic retrieval quality number.** The only embedding available without an API
+  key has random vectors. Both the LangChain and LightRAG adapters are tested for
+  mechanics and excluded from every published number.
+- **No verified Docker build.** The image and compose file exist; Docker is not installed
+  in the environment they were written in, so the image has never been built.

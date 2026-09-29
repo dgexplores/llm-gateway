@@ -41,7 +41,9 @@ class OllamaProvider:
             base_url=os.environ.get("OLLAMA_HOST", DEFAULT_BASE_URL),
         )
 
-    def complete(self, messages: list[Message], *, temperature: float = 0.0) -> Completion:
+    def complete(
+        self, messages: list[Message], *, request_id: str = "", temperature: float = 0.0
+    ) -> Completion:
         data = post_json(
             self._client,
             "/api/chat",

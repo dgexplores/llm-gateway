@@ -65,6 +65,9 @@ class Provider(Protocol):
       succeed on a second identical attempt, and retrying only adds latency.
     - ``model`` must be stable for the lifetime of the instance, because it keys the
       cost table and the cache namespace.
+    - ``request_id`` is passed through for correlation and cache keying. It is on the
+      protocol because ``Gateway`` supplies it; a provider that ignores it is fine, one
+      that lacks it is not.
     """
 
     name: str
@@ -72,7 +75,9 @@ class Provider(Protocol):
     @property
     def model(self) -> str: ...
 
-    def complete(self, messages: list[Message], *, temperature: float = 0.0) -> Completion: ...
+    def complete(
+        self, messages: list[Message], *, request_id: str = "", temperature: float = 0.0
+    ) -> Completion: ...
 
     def healthy(self) -> bool:
         """Whether this provider should be attempted. Circuit breakers override this."""

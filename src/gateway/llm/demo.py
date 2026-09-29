@@ -31,7 +31,9 @@ class DemoProvider:
     model: str = "extractive-v1"
     max_sentences: int = 3
 
-    def complete(self, messages: list[Message], *, temperature: float = 0.0) -> Completion:
+    def complete(
+        self, messages: list[Message], *, request_id: str = "", temperature: float = 0.0
+    ) -> Completion:
         context = self._extract_context(messages)
         if not context:
             raise ProviderError("demo provider received no context", retryable=False)

@@ -129,6 +129,10 @@ class Metrics:
             "hit@10": round(self.hit_rate_at_10, 4),
             "p95_ms": round(self.p95_retrieval_ms, 1),
             "n": self.n_questions,
+            # Written out, not just printed. The results file is the evidence, so a
+            # number quoted in docs/RESULTS.md has to be readable from the artifact
+            # rather than copied off a terminal.
+            "per_difficulty": {k: round(v, 4) for k, v in sorted(self.per_difficulty.items())},
         }
 
 

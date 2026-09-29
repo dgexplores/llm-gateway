@@ -21,11 +21,15 @@ uv sync --extra langchain   # semantic retrieval
 uv sync --extra lightrag   # knowledge-graph retrieval (heavy; needs a real model)
 ```
 
-> **Results published.** BM25 reaches **nDCG@10 0.891** and **recall@10 0.922** at
-> 3.5 ms p95 over 1,448 chunks, on a corpus pinned by commit. The 51 questions are
-> *mechanically verified*, not hand-verified — a verifier proven to reject fabricated
-> answers checked each one against the document it cites. What that does and does not
-> establish is spelled out in [docs/RESULTS.md](docs/RESULTS.md).
+> **Results published.** BM25 reaches **nDCG@10 0.869** and **recall@10 0.905** at
+> 2.7 ms p95 over 1,448 chunks, on a corpus pinned by commit, against a no-retrieval
+> control at 0.000. 63 questions, *mechanically verified* — a verifier proven to reject
+> fabricated answers checked each one against the document it cites.
+>
+> Two measured limitations are published rather than hidden, both in
+> [docs/RESULTS.md](docs/RESULTS.md): the gateway **cannot** detect a question its corpus
+> cannot answer (0% abstention on 8 such questions, all reported as grounded), and the
+> NLI verifier **rejects every true claim** (0/60) because it collapses on long premises.
 
 ## What it does today
 

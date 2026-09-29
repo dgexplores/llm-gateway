@@ -49,7 +49,9 @@ class OpenAIProvider:
         host = self.base_url.split("//", 1)[-1].split("/", 1)[0]
         return host.startswith(("localhost", "127.0.0.1", "0.0.0.0", "::1"))
 
-    def complete(self, messages: list[Message], *, temperature: float = 0.0) -> Completion:
+    def complete(
+        self, messages: list[Message], *, request_id: str = "", temperature: float = 0.0
+    ) -> Completion:
         if not self.api_key and not self._is_local:
             raise ProviderError("OPENAI_API_KEY is not set", retryable=False)
 
