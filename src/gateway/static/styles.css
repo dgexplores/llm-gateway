@@ -123,3 +123,16 @@ button.primary:hover:not(:disabled) { filter: brightness(1.08); }
 .claims { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
 .claims li { color: var(--muted); padding-left: 10px; border-left: 2px solid var(--line); }
 .claims li.uncited { border-left-color: var(--warn); }
+
+.audit {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px;
+  padding: 9px 12px; border-radius: 8px; font-size: 13px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+}
+.audit.warn { border-color: var(--warn); color: #fde68a; }
+.audit.bad { border-color: var(--bad); color: #fecaca; }
+.audit-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  color: var(--muted); flex-shrink: 0;
+}
+.audit.warn .audit-label, .audit.bad .audit-label { color: inherit; }

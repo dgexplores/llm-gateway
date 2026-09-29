@@ -29,6 +29,7 @@ from .pipeline import MAX_QUESTION_CHARS, MAX_TOP_K, Gateway
 from .rag.bm25 import BM25Retriever
 from .rag.ingest import chunk_corpus, load_documents
 from .rag.retriever import NullRetriever, Retriever
+from .verify import NullVerifier, OverlapVerifier
 
 STATIC_DIR = Path(__file__).parent / "static"
 CORPUS_DIR = Path(os.environ.get("GATEWAY_CORPUS", "corpus"))
@@ -55,6 +56,7 @@ class AppState:
     chunk_count: int
     document_count: int
     providers: list[str]
+    verifying: bool = False
 
     @property
     def mode(self) -> str:
@@ -122,12 +124,20 @@ def create_app(corpus_dir: Path = CORPUS_DIR) -> FastAPI:
     costs.add("ollama", "llama3.2:3b", 0.0, 0.0)
     client = LLMClient(providers, recorder, costs)
 
+    # Verification is on by default when a corpus is loaded. With nothing to verify
+    # against, the gate could only ever pass or fail arbitrarily, so it stays off and
+    # /api/health says so.
+    verifying = os.environ.get("GATEWAY_VERIFY", "auto") not in ("0", "false", "off")
+    verifying = verifying and chunk_count > 0
+    verifier = OverlapVerifier() if verifying else NullVerifier()
+
     state = AppState(
-        gateway=Gateway(retriever, client),
+        gateway=Gateway(retriever, client, verifier=verifier),
         corpus_loaded=isinstance(retriever, BM25Retriever),
         chunk_count=chunk_count,
         document_count=document_count,
         providers=provider_names,
+        verifying=verifying,
     )
     app.state.gw = state
 
@@ -146,6 +156,7 @@ def create_app(corpus_dir: Path = CORPUS_DIR) -> FastAPI:
             "providers": state.providers,
             "documents": state.document_count,
             "chunks": state.chunk_count,
+            "verifying": state.verifying,
         }
 
     @app.get("/api/sources")

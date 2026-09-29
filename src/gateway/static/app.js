@@ -104,6 +104,28 @@ function renderSources(payload) {
   $("coverage").textContent = `cited ${(payload.coverage * 100).toFixed(0)}%`;
 }
 
+/* The audit is the answer's trustworthiness made inspectable: how many claims were
+   checked, how many failed, and whether the answer was withheld entirely. */
+function renderAudit(payload) {
+  const box = $("audit");
+  const audit = payload.audit;
+  if (!audit || !audit.verified) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+
+  const parts = [
+    `${audit.supported}/${audit.claims.length} claims grounded`,
+    `verifier ${audit.verifier}`,
+  ];
+  if (audit.abstained) parts.push(`withheld (${payload.abstain_reason})`);
+  if (audit.revisions) parts.push(`${audit.revisions} revision`);
+
+  $("audit-text").textContent = parts.join(" · ");
+  $("audit").className = "audit" + (audit.abstained ? " bad" : audit.unsupported ? " warn" : "");
+}
+
 function renderUsage(payload) {
   const dl = $("usage");
   dl.replaceChildren();
@@ -127,10 +149,17 @@ function renderUsage(payload) {
 function renderClaims(payload) {
   const ul = $("claims");
   ul.replaceChildren();
+  const byText = new Map((payload.audit?.claims || []).map((c) => [c.text, c]));
   for (const claim of payload.claims || []) {
-    const li = el("li", claim.uncited ? "uncited" : null);
+    const verdict = byText.get(claim.text);
     const refs = claim.citations?.length ? claim.citations.join(", ") : "no citation";
-    li.textContent = `${claim.text} [${refs}]`;
+    // An unsupported claim is the finding this panel exists to surface, so it is
+    // marked in the same class as an uncited one rather than hidden.
+    const bad = claim.uncited || (verdict && !verdict.supported);
+    const li = el("li", bad ? "uncited" : null);
+    li.textContent = verdict
+      ? `${verdict.supported ? "supported" : "UNSUPPORTED"} — ${claim.text} [${refs}]`
+      : `${claim.text} [${refs}]`;
     ul.appendChild(li);
   }
 }
@@ -198,6 +227,7 @@ async function ask() {
     renderSources(data);
     renderUsage(data);
     renderClaims(data);
+    renderAudit(data);
     setStatus("");
   } catch (err) {
     setStatus(err.message, true);

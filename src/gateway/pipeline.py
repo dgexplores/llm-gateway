@@ -14,9 +14,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from .audit import Audit, VerifierGate
 from .citations import Citation, coverage, resolve, split_claims, strip_citations
 from .llm.base import Completion, Message
 from .rag.retriever import Retriever
+from .verify import NullVerifier, Verifier
 
 DEFAULT_TOP_K = 5
 MAX_TOP_K = 25
@@ -60,6 +62,9 @@ class Answer:
     dangling_citations: list[int] = field(default_factory=list)
     claims: list[dict[str, object]] = field(default_factory=list)
     coverage: float = 0.0
+    audit: Audit | None = None
+    abstained: bool = False
+    abstain_reason: str = ""
     usage: dict[str, object] = field(default_factory=dict)
     retrieval_ms: float = 0.0
     generation_ms: float = 0.0
@@ -85,6 +90,10 @@ class Answer:
             "dangling_citations": self.dangling_citations,
             "claims": self.claims,
             "coverage": self.coverage,
+            "verified": self.audit.verified if self.audit else False,
+            "abstained": self.abstained,
+            "abstain_reason": self.abstain_reason,
+            "audit": self.audit.to_dict() if self.audit else None,
             "usage": self.usage,
             "retrieval_ms": round(self.retrieval_ms, 1),
             "generation_ms": round(self.generation_ms, 1),
@@ -257,11 +266,22 @@ class Gateway:
         top_k: int = DEFAULT_TOP_K,
         excerpt_chars: int = 400,
         instruction: str | None = None,
+        verifier: Verifier | None = None,
+        max_revisions: int = 0,
+        require_majority: bool = False,
     ):
         self.retriever = retriever
         self.generator = generator
         self.top_k = clamp_top_k(top_k)
         self.excerpt_chars = excerpt_chars
+        # Verification off by default: a gate nobody configured should not silently
+        # withhold answers. Enabled explicitly, it is the thing that makes an
+        # ungrounded answer impossible to return.
+        self.gate = VerifierGate(
+            verifier or NullVerifier(),
+            max_revisions=max_revisions,
+            require_majority=require_majority,
+        )
         self.instruction = instruction or (
             "Answer the question using only the numbered sources below. "
             "Cite every claim with its source number, like [1]. "
@@ -319,14 +339,47 @@ class Gateway:
         completion = self.generator.complete(messages, request_id=request_id)
         generation_ms = (time.perf_counter() - started) * 1000
 
-        cited, dangling = resolve(completion.text, [s.to_citation() for s in sources])
+        # Verify before binding citations. An invented claim must not be able to earn
+        # a citation chip by naming a source that happens to exist.
+        context = render_context(sources)
+        text, audit, _ = self.gate.decide(completion.text, context)
+
+        cited, dangling = resolve(text, [s.to_citation() for s in sources])
         cited_ids = {c.index for c in cited}
         for source in sources:
             source.cited = source.index in cited_ids
 
+        # Withhold an answer that failed verification. The text is kept in the audit
+        # so the reason is inspectable, but it is not presented as an answer.
+        failed = self.gate.verifier.name != "null" and not self.gate.passes(audit)
+        if failed:
+            supported = [c.text for c in audit.claims if c.supported]
+            joined = " ".join(supported)
+            joined = re.sub(r"\s+", " ", joined).strip()
+            if not joined:
+                return Answer(
+                    question=question,
+                    text=(
+                        "I could not find support for any part of this answer in the "
+                        "retrieved passages, so I am not going to give it to you. "
+                        f"({audit.unsupported_count} of {len(audit.claims)} claims "
+                        "were unsupported.)"
+                    ),
+                    sources=sources,
+                    claims=[c.to_dict() for c in audit.claims],
+                    audit=audit,
+                    abstained=True,
+                    abstain_reason="unsupported_claims",
+                    usage=self._usage(completion),
+                    retrieval_ms=retrieval_ms,
+                    generation_ms=generation_ms,
+                    is_demo=bool(completion.metadata.get("demo")),
+                )
+            text = joined
+
         return Answer(
             question=question,
-            text=completion.text,
+            text=text,
             sources=sources,
             dangling_citations=dangling,
             claims=[
@@ -335,22 +388,28 @@ class Gateway:
                     "citations": [c for c in claim.citations if c in cited_ids],
                     "uncited": not any(c in cited_ids for c in claim.citations),
                 }
-                for claim in split_claims(completion.text)
+                for claim in split_claims(text)
             ],
-            coverage=coverage(completion.text, [s.to_citation() for s in sources]),
-            usage={
-                "model": completion.model,
-                "prompt_tokens": completion.prompt_tokens,
-                "completion_tokens": completion.completion_tokens,
-                "total_tokens": completion.total_tokens
-                if hasattr(completion, "total_tokens")
-                else completion.prompt_tokens + completion.completion_tokens,
-                "is_demo": bool(completion.metadata.get("demo")),
-            },
+            coverage=coverage(text, [s.to_citation() for s in sources]),
+            audit=audit,
+            usage=self._usage(completion),
             retrieval_ms=retrieval_ms,
             generation_ms=generation_ms,
             is_demo=bool(completion.metadata.get("demo")),
         )
+
+    @staticmethod
+    def _usage(completion: Completion) -> dict[str, object]:
+        total = getattr(completion, "total_tokens", None)
+        return {
+            "model": completion.model,
+            "prompt_tokens": completion.prompt_tokens,
+            "completion_tokens": completion.completion_tokens,
+            "total_tokens": total
+            if total is not None
+            else completion.prompt_tokens + completion.completion_tokens,
+            "is_demo": bool(completion.metadata.get("demo")),
+        }
 
     def ask_text(self, question: str, **kwargs: object) -> str:
         """Answer without citation markers, for callers that only want prose."""

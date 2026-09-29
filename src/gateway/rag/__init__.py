@@ -9,6 +9,7 @@ from .eval import (
     regression_gate,
     render_table,
 )
+from .hybrid import HybridRetriever, explain_fusion
 from .ingest import Chunk, Document, chunk_corpus, chunk_document, load_documents
 from .retriever import NullRetriever, Retriever, ScoredChunk, normalize, top_k
 
@@ -18,6 +19,7 @@ __all__ = [
     "Chunk",
     "Document",
     "Golden",
+    "HybridRetriever",
     "Metrics",
     "NullRetriever",
     "Retriever",
@@ -32,6 +34,7 @@ __all__ = [
     "recall_at_k",
     "regression_gate",
     "render_table",
+    "explain_fusion",
     "tokenize",
     "top_k",
 ]
