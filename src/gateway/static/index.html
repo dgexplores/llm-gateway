@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Gateway</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <span class="dot" id="health-dot" title="checking"></span>
+    <h1>LLM Gateway</h1>
+  </div>
+  <div class="meta" id="health-meta">checking service</div>
+</header>
+
+<main>
+  <section class="panel ask">
+    <label class="field">
+      <span class="label">Question</span>
+      <textarea id="question" rows="3" maxlength="2000"
+        placeholder="What does the documentation say about response status codes?"></textarea>
+    </label>
+
+    <div class="controls">
+      <label class="k">
+        <span>Passages</span>
+        <input id="topk" type="number" min="1" max="25" value="5">
+      </label>
+      <div class="examples" id="examples"></div>
+      <button id="go" class="primary">Ask</button>
+    </div>
+
+    <div id="status" class="status" hidden></div>
+
+    <div id="answer-wrap" class="answer-wrap" hidden>
+      <div class="answer-head">
+        <h2>Answer</h2>
+        <span id="demo-badge" class="badge warn" hidden>demo output</span>
+      </div>
+      <div id="answer" class="answer"></div>
+      <p id="dangling" class="dangling" hidden></p>
+    </div>
+  </section>
+
+  <div class="split">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Sources</h2>
+        <span id="coverage" class="badge"></span>
+      </div>
+      <ol id="sources" class="sources"></ol>
+    </section>
+
+    <section class="panel">
+      <h2>Call</h2>
+      <dl id="usage" class="usage"></dl>
+      <h3 class="sub">Claims</h3>
+      <ul id="claims" class="claims"></ul>
+    </section>
+  </div>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

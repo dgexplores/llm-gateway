@@ -72,11 +72,11 @@ surface area without adding signal.
 
 ## Status
 
-Module 1 complete. Module 2 not started.
+Modules 1 and 2 complete. Module 3 (verification) not started.
 
 Shipped: provider failover with circuit breaking, usage accounting, cache, the
-`Retriever` contract, chunking, `BM25Retriever`, and an evaluation harness whose CI
-gate refuses to run over unreviewed questions.
+`Retriever` contract, chunking, `BM25Retriever`, an evaluation harness whose CI gate
+refuses to run over unreviewed questions, a FastAPI service, and a zero-build UI.
 
 **No published number yet, deliberately.** A provisional run over 51 unreviewed
 questions gave BM25 nDCG@10 ≈ 0.89, p95 2.7 ms, over 1,448 chunks from 155

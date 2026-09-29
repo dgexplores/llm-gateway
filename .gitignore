@@ -23,3 +23,6 @@ results/
 # Corpus is vendored, not committed. Re-fetched from a pinned commit; committing
 # 155 vendored files would bury every real change in the diff.
 corpus/
+
+# Browser-automation screenshots from local UI checks
+.playwright-mcp/

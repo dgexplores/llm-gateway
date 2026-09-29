@@ -1,0 +1,357 @@
+"""The gateway pipeline.
+
+One entry point that turns a question into an answer plus everything needed to
+interrogate it: which sources were retrieved, what each scored, what it cost, and how
+long each part took. The point is that the answer is never returned alone. An answer
+without its provenance is unauditable, and an unauditable answer is the thing this
+project exists to prevent.
+"""
+
+from __future__ import annotations
+
+import re
+import time
+from dataclasses import dataclass, field
+from typing import Protocol
+
+from .citations import Citation, coverage, resolve, split_claims, strip_citations
+from .llm.base import Completion, Message
+from .rag.retriever import Retriever
+
+DEFAULT_TOP_K = 5
+MAX_TOP_K = 25
+MAX_QUESTION_CHARS = 2000
+
+
+@dataclass
+class Source:
+    """A retrieved chunk as shown to the user.
+
+    Mutable because ``cited`` is resolved after the answer exists. The alternative is
+    rebuilding the whole list, which would make the binding step harder to follow for
+    the sake of immutability that buys nothing here.
+    """
+
+    index: int
+    chunk_id: str
+    doc_id: str
+    title: str
+    score: float
+    excerpt: str
+    cited: bool = False
+
+    def to_citation(self) -> Citation:
+        return Citation(
+            index=self.index,
+            chunk_id=self.chunk_id,
+            doc_id=self.doc_id,
+            title=self.title,
+            excerpt=self.excerpt,
+        )
+
+
+@dataclass
+class Answer:
+    """A complete, auditable response."""
+
+    question: str
+    text: str
+    sources: list[Source]
+    dangling_citations: list[int] = field(default_factory=list)
+    claims: list[dict[str, object]] = field(default_factory=list)
+    coverage: float = 0.0
+    usage: dict[str, object] = field(default_factory=dict)
+    retrieval_ms: float = 0.0
+    generation_ms: float = 0.0
+    is_demo: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "question": self.question,
+            "text": self.text,
+            "sources": [
+                {
+                    "index": s.index,
+                    "chunk_id": s.chunk_id,
+                    "doc_id": s.doc_id,
+                    "title": s.title,
+                    "score": s.score,
+                    "excerpt": s.excerpt,
+                    "cited": s.cited,
+                }
+                for s in self.sources
+            ],
+            "citations": [s.index for s in self.sources if s.cited],
+            "dangling_citations": self.dangling_citations,
+            "claims": self.claims,
+            "coverage": self.coverage,
+            "usage": self.usage,
+            "retrieval_ms": round(self.retrieval_ms, 1),
+            "generation_ms": round(self.generation_ms, 1),
+            "is_demo": self.is_demo,
+        }
+
+
+class Generator(Protocol):
+    """Anything that turns a rendered prompt into a completion.
+
+    ``LLMClient`` satisfies this by having a ``complete`` method with the same shape,
+    so the pipeline does not need to know which providers are configured.
+    """
+
+    name: str
+
+    def complete(
+        self, messages: list[Message], *, request_id: str, temperature: float = 0.0
+    ) -> Completion: ...
+
+
+# Documentation is written for rendering. Quoted text carries heading markers, source
+# include directives, anchor slugs, and emphasis, and all of it is visible in the UI
+# preview as well as in a quoted answer. Cleaning happens once, on the excerpt, so the
+# preview and the model see the same text.
+_INCLUDE_DIRECTIVE = re.compile(r"\{\*.*?\*\}", re.DOTALL)
+_MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
+_HTML_TAG = re.compile(r"</?[a-zA-Z][^>]*>")
+_ANCHOR_SLUG = re.compile(r"\s*\{[^{}#]*#[^{}]*\}")
+_EMPHASIS = re.compile(r"\*\*([^*]+)\*\*")
+_INLINE_CODE = re.compile(r"`([^`]*)`")
+_BARE_URL = re.compile(r"https?://\S+")
+_BULLET_LINE = re.compile(r"^\s*[-*+]\s+")
+# Heading lines carry no prose of their own, so dropping them is lossless and stops
+# "## Dependencies" from being quoted as the opening of an answer.
+_HEADING_LINE = re.compile(r"^\s*#{1,6}\s")
+
+
+def clean_markup(text: str) -> str:
+    """Remove documentation markup while keeping the prose.
+
+    Link text and code identifiers are kept; the URL and the markers are not. A
+    preview showing "[Starlette's docs](https://...)" or "{* ../../docs_src/x.py *}"
+    tells the reader nothing and makes the retrieval score impossible to trust.
+    """
+    cleaned = _INCLUDE_DIRECTIVE.sub(" ", text)
+    cleaned = _CODE_FENCE.sub(" ", cleaned)
+    cleaned = _MD_LINK.sub(r"\1", cleaned)
+    cleaned = _ANCHOR_SLUG.sub(" ", cleaned)
+    cleaned = _HTML_TAG.sub("", cleaned)
+    cleaned = _BARE_URL.sub("", cleaned)
+    cleaned = _EMPHASIS.sub(r"\1", cleaned)
+    cleaned = _INLINE_CODE.sub(r"\1", cleaned)
+    cleaned = "\n".join(
+        line
+        for line in cleaned.splitlines()
+        if not _BULLET_LINE.match(line) and not _HEADING_LINE.match(line)
+    )
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
+def truncate_excerpt(text: str, limit: int) -> str:
+    """Cut to ``limit`` characters at a sentence or word boundary.
+
+    A hard cut mid-sentence is what produced answers starting "ou can use..." and
+    previews ending "...including a respo". The excerpt is shown to the user and sent
+    to the model, so its edges are visible in both places.
+    """
+    cleaned = text.strip()
+    window = cleaned[:limit]
+
+    # Trim the leading fragment, but only when one actually exists. Chunks start
+    # mid-sentence whenever a document is split at a size boundary, and a chunk
+    # beginning "e passing it to a response:" is unreadable both in the preview and
+    # when quoted back as an answer. Text already starting at a sentence boundary is
+    # left alone, or every excerpt would silently lose its first sentence.
+    #
+    # This runs before the length check, because a short chunk can still be a
+    # fragment and a fragment under the limit is still a fragment.
+    if window and window[0].islower():
+        for boundary, char in enumerate(window):
+            # A colon counts as a boundary as well: the observed fragment was
+            # "...e passing it to a response: you can use the jsonable_encoder...",
+            # where cutting at the colon keeps the relevant clause instead of
+            # skipping a whole sentence to reach the next full stop.
+            if char in ".!?\n:":
+                remainder = window[boundary + 1 :].strip()
+                # Only accept the cut when enough survives to be worth showing.
+                if len(remainder) >= max(40, len(window) * 0.4):
+                    window = remainder
+                break
+        else:
+            # No boundary at all: drop the leading partial word.
+            space = window.find(" ")
+            if 0 < space < 40:
+                window = window[space + 1 :]
+
+    if len(cleaned) <= limit:
+        return window.strip()
+
+    # Prefer the last sentence or line end, so the excerpt is a whole number of
+    # sentences. The search floor is 50% of the limit: a boundary just past the limit
+    # would otherwise discard most of the excerpt to gain one word.
+    for boundary in range(len(window) - 1, int(limit * 0.5) - 1, -1):
+        if window[boundary] in ".!?\n":
+            return window[: boundary + 1].strip()
+
+    # No usable boundary: cut at the last space so no word is left partial.
+    space = window.rfind(" ")
+    if space > 0:
+        return window[:space].strip()
+
+    # One unbroken token, longer than the limit. Return the prefix: an empty excerpt
+    # is worse than a clipped word.
+    return window.strip()
+
+
+def validate_question(question: str) -> str:
+    """Bound the input at the trust boundary.
+
+    An unbounded question reaches the provider, becomes a token cost, and can be used
+    to push a very large payload through the API. Rejecting here is cheaper and clearer
+    than truncating later.
+    """
+    cleaned = question.strip()
+    if not cleaned:
+        raise ValueError("question must not be empty")
+    if len(cleaned) > MAX_QUESTION_CHARS:
+        raise ValueError(f"question exceeds {MAX_QUESTION_CHARS} characters")
+    return cleaned
+
+
+def clamp_top_k(k: int) -> int:
+    return max(1, min(int(k), MAX_TOP_K))
+
+
+def render_context(sources: list[Source], max_chars: int = 6000) -> str:
+    """Number the sources so the answer can cite them.
+
+    The number is the citation index, so it must be stable between the prompt and the
+    binder. Each line is ``[n] text``; the demo provider parses exactly this format.
+    """
+    lines: list[str] = []
+    budget = max_chars
+    for source in sources:
+        text = source.excerpt[:budget]
+        if not text:
+            continue
+        lines.append(f"[{source.index}] {text}")
+        budget -= len(text)
+        if budget <= 0:
+            break
+    return "\n\n".join(lines)
+
+
+class Gateway:
+    """Retrieves, generates, and binds citations.
+
+    Deliberately one class with one method. The value is in the audit trail attached
+    to each answer, and splitting that across several objects would only make it
+    harder to follow.
+    """
+
+    def __init__(
+        self,
+        retriever: Retriever,
+        generator: Generator,
+        *,
+        top_k: int = DEFAULT_TOP_K,
+        excerpt_chars: int = 400,
+        instruction: str | None = None,
+    ):
+        self.retriever = retriever
+        self.generator = generator
+        self.top_k = clamp_top_k(top_k)
+        self.excerpt_chars = excerpt_chars
+        self.instruction = instruction or (
+            "Answer the question using only the numbered sources below. "
+            "Cite every claim with its source number, like [1]. "
+            "If the sources do not answer the question, say so plainly."
+        )
+
+    @property
+    def retrieval_mode(self) -> str:
+        return self.retriever.name
+
+    @property
+    def generator_mode(self) -> str:
+        return self.generator.name
+
+    def ask(self, question: str, *, request_id: str, top_k: int | None = None) -> Answer:
+        question = validate_question(question)
+        k = clamp_top_k(top_k) if top_k is not None else self.top_k
+
+        started = time.perf_counter()
+        hits = self.retriever.retrieve(question, k=k)
+        retrieval_ms = (time.perf_counter() - started) * 1000
+
+        sources = [
+            Source(
+                index=position,
+                chunk_id=hit.chunk_id,
+                doc_id=hit.doc_id,
+                title=hit.chunk.title or hit.doc_id,
+                score=round(hit.score, 4),
+                excerpt=truncate_excerpt(clean_markup(hit.text), self.excerpt_chars),
+            )
+            for position, hit in enumerate(hits, start=1)
+        ]
+
+        if not sources:
+            # No sources is a legitimate outcome, not a failure. Answering anyway
+            # would present model recall as if it were retrieved evidence.
+            return Answer(
+                question=question,
+                text=(
+                    "No matching passages were found in the corpus, so there is "
+                    "nothing to ground an answer in. Try different terms, or check "
+                    "the retrieval mode."
+                ),
+                sources=[],
+                retrieval_ms=retrieval_ms,
+            )
+
+        messages = [
+            Message.system(self.instruction),
+            Message.user(f"Question: {question}\n\nSources:\n{render_context(sources)}"),
+        ]
+
+        started = time.perf_counter()
+        completion = self.generator.complete(messages, request_id=request_id)
+        generation_ms = (time.perf_counter() - started) * 1000
+
+        cited, dangling = resolve(completion.text, [s.to_citation() for s in sources])
+        cited_ids = {c.index for c in cited}
+        for source in sources:
+            source.cited = source.index in cited_ids
+
+        return Answer(
+            question=question,
+            text=completion.text,
+            sources=sources,
+            dangling_citations=dangling,
+            claims=[
+                {
+                    "text": claim.text,
+                    "citations": [c for c in claim.citations if c in cited_ids],
+                    "uncited": not any(c in cited_ids for c in claim.citations),
+                }
+                for claim in split_claims(completion.text)
+            ],
+            coverage=coverage(completion.text, [s.to_citation() for s in sources]),
+            usage={
+                "model": completion.model,
+                "prompt_tokens": completion.prompt_tokens,
+                "completion_tokens": completion.completion_tokens,
+                "total_tokens": completion.total_tokens
+                if hasattr(completion, "total_tokens")
+                else completion.prompt_tokens + completion.completion_tokens,
+                "is_demo": bool(completion.metadata.get("demo")),
+            },
+            retrieval_ms=retrieval_ms,
+            generation_ms=generation_ms,
+            is_demo=bool(completion.metadata.get("demo")),
+        )
+
+    def ask_text(self, question: str, **kwargs: object) -> str:
+        """Answer without citation markers, for callers that only want prose."""
+        return strip_citations(self.ask(question, **kwargs).text)  # type: ignore[arg-type]

@@ -4,9 +4,9 @@ A resilient gateway between an application and an LLM provider. It owns the four
 things that break in production and get ignored in demos: provider failure, repeated
 cost, unsupported answers, and missing traces.
 
-**Status:** Module 1 complete (resilient client, cache, retrieval, evaluation
-harness). Module 2 planned in [PLAN.md](PLAN.md). Design rationale in
-[ARCHITECTURE.md](ARCHITECTURE.md).
+**Status:** Modules 1 and 2 complete. Resilient client, cache, retrieval, evaluation
+harness, HTTP API, and a working UI. Verification and the ablation comparison are
+planned in [PLAN.md](PLAN.md); design rationale in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 > **No results published yet, on purpose.** The evaluation harness runs, but its CI
 > gate refuses to execute over unreviewed questions. See
@@ -54,6 +54,37 @@ interview. `Usage.overhead_ms` exposes the difference directly.
 
 `test_providers.py` covers the status-to-retryability table, which is where a wrong
 decision costs real latency.
+
+## Run it
+
+```bash
+./scripts/fetch_corpus.sh     # pinned FastAPI docs, MIT, 155 files
+./scripts/serve.sh            # http://127.0.0.1:8000
+```
+
+No credentials and no Docker are required. With neither `OPENAI_API_KEY` nor a local
+Ollama server, the service falls back to an extractive provider that answers by
+quoting retrieved passages, and labels every such answer **demo output** so it is never
+mistaken for a model. Set `OLLAMA_HOST` or `OPENAI_API_KEY` for a real model.
+
+## The interface
+
+![the gateway answering a question with clickable citations](docs/screenshot.png)
+
+Every number the system produces is visible rather than asserted:
+
+| Surface | What it makes legible |
+|---|---|
+| Answer with inline chips | click a claim, the source highlights |
+| Sources panel | ranked chunks with scores, and which were cited |
+| Call panel | retrieval vs generation time, model, token counts |
+| Claims panel | per-sentence attribution, so a partial answer is visible |
+| `cited N%` badge | how much of the retrieved context the model actually used |
+
+An answer that cites a source which was not retrieved shows a red chip and a warning
+rather than quietly looking supported. When retrieval finds nothing, the gateway
+answers with an explicit refusal: an answer with no evidence behind it is the one thing
+this project exists to prevent.
 
 ## Retrieval
 
