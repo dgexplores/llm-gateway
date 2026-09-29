@@ -14,36 +14,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ..text import is_quotable, sentences
 from .base import Completion, Message, ProviderError
-
-_SENTENCE = re.compile(r"(?<=[.!?])\s+")
-
-# Documentation is written for rendering. Three kinds of residue survive into quoted
-# text and are visible in every answer:
-#   {* ../../docs_src/x.py hl[5:6] *}  a source-include directive
-#   [Starlette's docs](https://...)    a link, which becomes a bare URL
-#   ```python                          a code fence opener
-_INCLUDE_DIRECTIVE = re.compile(r"\{\*.*?\*\}", re.DOTALL)
-_MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
-_FENCE = re.compile(r"^```.*$", re.MULTILINE)
-_WS = re.compile(r"[ \t]{2,}")
-# Bullet markers are removed, but the marker character is recorded so the sentence
-# can be rejected later. Stripping a bullet and keeping its text would let a list
-# item be quoted as if it were a prose claim, which is a different kind of thing.
-# Bullet markers are removed, but the marker is recorded so the resulting line can be
-# rejected later. Stripping a bullet and keeping its text would let a list item be
-# quoted as if it were a prose claim, which is a different kind of thing.
-_HEADING_LINE = re.compile(r"^\s*#{1,6}\s")
-_BULLET_LINE = re.compile(r"^\s*[-*+][ \t]+")
-_BARE_URL = re.compile(r"https?://\S+")
-# Anchor slugs left by the docs generator, e.g. "Additional Responses { #additional }".
-# The slug is metadata, never part of the prose.
-_ANCHOR_SLUG = re.compile(r"\s*\{[^{}#]*#[^{}]*\}\s*")
-# <dfn> and similar inline documentation tags: keep the text, drop the tag.
-_HTML_TAG = re.compile(r"</?[a-zA-Z][^>]*>")
-# A leading backtick is the tail of an inline span opened before the chunk boundary,
-# which is how "add_task()`:" became an answer.
-_DANGLING_SPAN = re.compile(r"^`+\S*?`?[:;]?\s*")
 
 
 @dataclass
@@ -121,7 +93,7 @@ class DemoProvider:
         for index, text in context[: self.max_sentences]:
             cleaned = self._best_sentence(text)
             if cleaned:
-                chosen.append((index, _WS.sub(" ", cleaned).strip()))
+                chosen.append((index, cleaned))
         return chosen
 
     @classmethod
@@ -129,49 +101,16 @@ class DemoProvider:
         """Pick one quotable sentence, or None when the source has none.
 
         ``None`` is a real outcome and is preferred over returning markup. A source
-        that is only a heading or a code reference has nothing to quote, and emitting
-        a directive as if it were an answer is worse than citing fewer sources.
+        that is only a heading or a code reference has nothing to quote, and emitting a
+        directive as if it were an answer is worse than citing fewer sources.
+
+        The cleanup and sentence splitting are shared with the excerpt shown in the UI.
+        Two implementations meant the preview and the quote drifted apart, which is how
+        markup appeared in one and not the other.
         """
-        cleaned = _INCLUDE_DIRECTIVE.sub(" ", _FENCE.sub(" ", text))
-        cleaned = _MD_LINK.sub(r"\1", cleaned)
-        cleaned = _ANCHOR_SLUG.sub(" ", cleaned)
-        cleaned = _HTML_TAG.sub("", cleaned)
-        cleaned = _BARE_URL.sub("", cleaned)
-
-        # Drop whole heading lines before flattening. Order matters: stripping the '#'
-        # marks first would leave no marker to identify the line as a heading, and a
-        # heading is then quoted as the opening of the answer ("Response - Change
-        # Status Code You probably read before that...").
-        # Headings and list items are dropped line by line rather than by substitution.
-        # Removing the marker and keeping the text is what let a list item through as
-        # prose; the line has to be discarded, not undecorated.
-        cleaned = "\n".join(
-            line
-            for line in cleaned.splitlines()
-            if not _HEADING_LINE.match(line) and not _BULLET_LINE.match(line)
-        )
-
-        # A blank line inside a span means it crosses a paragraph boundary, so the
-        # text is several things rather than one sentence.
-        parts: list[str] = []
-        for block in re.split(r"\n\s*\n", cleaned):
-            for part in _SENTENCE.split(block):
-                sentence = _WS.sub(" ", part).strip()
-                # A span opened before the chunk boundary leaves a leading backtick
-                # with no opening context; that is residue, not a sentence.
-                sentence = _DANGLING_SPAN.sub("", sentence).strip()
-                if sentence:
-                    parts.append(sentence)
-
-        # Prose only. No length floor: "Add a task function." is a short but perfectly
-        # good claim, and a minimum would reject it. What disqualifies a candidate is
-        # being a fragment, which shows up as a missing terminator or a missing
-        # opening capital.
-        for sentence in parts:
-            if sentence.endswith((".", "!", "?")) and sentence[0].isupper():
-                if re.search(r"[a-z]{3,}", sentence):
-                    return sentence
-
+        for candidate in sentences(text):
+            if is_quotable(candidate):
+                return candidate
         return None
 
     def healthy(self) -> bool:

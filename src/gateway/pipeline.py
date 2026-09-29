@@ -18,6 +18,7 @@ from .audit import Audit, VerifierGate
 from .citations import Citation, coverage, resolve, split_claims, strip_citations
 from .llm.base import Completion, Message
 from .rag.retriever import Retriever
+from .text import clean_markup, excerpt, truncate_excerpt  # noqa: F401 - re-exported
 from .verify import NullVerifier, Verifier
 
 DEFAULT_TOP_K = 5
@@ -69,6 +70,8 @@ class Answer:
     retrieval_ms: float = 0.0
     generation_ms: float = 0.0
     is_demo: bool = False
+    retrieval_mode: str = ""
+    generator_mode: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -95,6 +98,8 @@ class Answer:
             "abstain_reason": self.abstain_reason,
             "audit": self.audit.to_dict() if self.audit else None,
             "usage": self.usage,
+            "retrieval_mode": self.retrieval_mode,
+            "generator_mode": self.generator_mode,
             "retrieval_ms": round(self.retrieval_ms, 1),
             "generation_ms": round(self.generation_ms, 1),
             "is_demo": self.is_demo,
@@ -113,103 +118,6 @@ class Generator(Protocol):
     def complete(
         self, messages: list[Message], *, request_id: str, temperature: float = 0.0
     ) -> Completion: ...
-
-
-# Documentation is written for rendering. Quoted text carries heading markers, source
-# include directives, anchor slugs, and emphasis, and all of it is visible in the UI
-# preview as well as in a quoted answer. Cleaning happens once, on the excerpt, so the
-# preview and the model see the same text.
-_INCLUDE_DIRECTIVE = re.compile(r"\{\*.*?\*\}", re.DOTALL)
-_MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
-_CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
-_HTML_TAG = re.compile(r"</?[a-zA-Z][^>]*>")
-_ANCHOR_SLUG = re.compile(r"\s*\{[^{}#]*#[^{}]*\}")
-_EMPHASIS = re.compile(r"\*\*([^*]+)\*\*")
-_INLINE_CODE = re.compile(r"`([^`]*)`")
-_BARE_URL = re.compile(r"https?://\S+")
-_BULLET_LINE = re.compile(r"^\s*[-*+]\s+")
-# Heading lines carry no prose of their own, so dropping them is lossless and stops
-# "## Dependencies" from being quoted as the opening of an answer.
-_HEADING_LINE = re.compile(r"^\s*#{1,6}\s")
-
-
-def clean_markup(text: str) -> str:
-    """Remove documentation markup while keeping the prose.
-
-    Link text and code identifiers are kept; the URL and the markers are not. A
-    preview showing "[Starlette's docs](https://...)" or "{* ../../docs_src/x.py *}"
-    tells the reader nothing and makes the retrieval score impossible to trust.
-    """
-    cleaned = _INCLUDE_DIRECTIVE.sub(" ", text)
-    cleaned = _CODE_FENCE.sub(" ", cleaned)
-    cleaned = _MD_LINK.sub(r"\1", cleaned)
-    cleaned = _ANCHOR_SLUG.sub(" ", cleaned)
-    cleaned = _HTML_TAG.sub("", cleaned)
-    cleaned = _BARE_URL.sub("", cleaned)
-    cleaned = _EMPHASIS.sub(r"\1", cleaned)
-    cleaned = _INLINE_CODE.sub(r"\1", cleaned)
-    cleaned = "\n".join(
-        line
-        for line in cleaned.splitlines()
-        if not _BULLET_LINE.match(line) and not _HEADING_LINE.match(line)
-    )
-    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
-
-
-def truncate_excerpt(text: str, limit: int) -> str:
-    """Cut to ``limit`` characters at a sentence or word boundary.
-
-    A hard cut mid-sentence is what produced answers starting "ou can use..." and
-    previews ending "...including a respo". The excerpt is shown to the user and sent
-    to the model, so its edges are visible in both places.
-    """
-    cleaned = text.strip()
-    window = cleaned[:limit]
-
-    # Trim the leading fragment, but only when one actually exists. Chunks start
-    # mid-sentence whenever a document is split at a size boundary, and a chunk
-    # beginning "e passing it to a response:" is unreadable both in the preview and
-    # when quoted back as an answer. Text already starting at a sentence boundary is
-    # left alone, or every excerpt would silently lose its first sentence.
-    #
-    # This runs before the length check, because a short chunk can still be a
-    # fragment and a fragment under the limit is still a fragment.
-    if window and window[0].islower():
-        for boundary, char in enumerate(window):
-            # A colon counts as a boundary as well: the observed fragment was
-            # "...e passing it to a response: you can use the jsonable_encoder...",
-            # where cutting at the colon keeps the relevant clause instead of
-            # skipping a whole sentence to reach the next full stop.
-            if char in ".!?\n:":
-                remainder = window[boundary + 1 :].strip()
-                # Only accept the cut when enough survives to be worth showing.
-                if len(remainder) >= max(40, len(window) * 0.4):
-                    window = remainder
-                break
-        else:
-            # No boundary at all: drop the leading partial word.
-            space = window.find(" ")
-            if 0 < space < 40:
-                window = window[space + 1 :]
-
-    if len(cleaned) <= limit:
-        return window.strip()
-
-    # Prefer the last sentence or line end, so the excerpt is a whole number of
-    # sentences. The search floor is 50% of the limit: a boundary just past the limit
-    # would otherwise discard most of the excerpt to gain one word.
-    for boundary in range(len(window) - 1, int(limit * 0.5) - 1, -1):
-        if window[boundary] in ".!?\n":
-            return window[: boundary + 1].strip()
-
-    # No usable boundary: cut at the last space so no word is left partial.
-    space = window.rfind(" ")
-    if space > 0:
-        return window[:space].strip()
-
-    # One unbroken token, longer than the limit. Return the prefix: an empty excerpt
-    # is worse than a clipped word.
-    return window.strip()
 
 
 def validate_question(question: str) -> str:
@@ -311,7 +219,7 @@ class Gateway:
                 doc_id=hit.doc_id,
                 title=hit.chunk.title or hit.doc_id,
                 score=round(hit.score, 4),
-                excerpt=truncate_excerpt(clean_markup(hit.text), self.excerpt_chars),
+                excerpt=excerpt(hit.text, self.excerpt_chars),
             )
             for position, hit in enumerate(hits, start=1)
         ]
@@ -328,6 +236,8 @@ class Gateway:
                 ),
                 sources=[],
                 retrieval_ms=retrieval_ms,
+                retrieval_mode=self.retrieval_mode,
+                generator_mode=self.generator_mode,
             )
 
         messages = [
@@ -374,6 +284,8 @@ class Gateway:
                     retrieval_ms=retrieval_ms,
                     generation_ms=generation_ms,
                     is_demo=bool(completion.metadata.get("demo")),
+                    retrieval_mode=self.retrieval_mode,
+                    generator_mode=self.generator_mode,
                 )
             text = joined
 
@@ -396,6 +308,8 @@ class Gateway:
             retrieval_ms=retrieval_ms,
             generation_ms=generation_ms,
             is_demo=bool(completion.metadata.get("demo")),
+            retrieval_mode=self.retrieval_mode,
+            generator_mode=self.generator_mode,
         )
 
     @staticmethod

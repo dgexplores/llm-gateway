@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..text import heading
 from .retriever import Chunk
 
 # Markdown heading boundaries, plus blank lines as a fallback. A paragraph-aware
@@ -60,7 +61,7 @@ def _first_heading(text: str) -> str:
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
-            return stripped.lstrip("#").strip()
+            return heading(stripped)
     return ""
 
 
