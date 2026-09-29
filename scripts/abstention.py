@@ -33,6 +33,12 @@ UNANSWERABLE = "evals/unanswerable.jsonl"
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--retriever", default="bm25", choices=["bm25", "none"])
+    parser.add_argument(
+        "--relevance",
+        action="store_true",
+        help="enable the cross-encoder relevance gate",
+    )
+    parser.add_argument("--threshold", type=float, default=None)
     parser.add_argument("--json", type=Path, default=None)
     args = parser.parse_args()
 
@@ -47,7 +53,17 @@ def main() -> None:
     else:
         retriever = BM25Retriever.build(chunk_corpus(documents))
 
-    gateway = Gateway(retriever, DemoProvider(), verifier=OverlapVerifier())
+    relevance = None
+    if args.relevance:
+        from gateway.relevance import DEFAULT_THRESHOLD, RelevanceGate
+
+        gate = RelevanceGate(threshold=args.threshold or DEFAULT_THRESHOLD)
+        relevance = gate
+        print(f"relevance gate on, threshold {gate.threshold}")
+
+    gateway = Gateway(
+        retriever, DemoProvider(), verifier=OverlapVerifier(), relevance=relevance
+    )
     raw = Path(UNANSWERABLE).read_text().splitlines()
     questions = [json.loads(line) for line in raw if line.strip()]
 
@@ -86,6 +102,8 @@ def main() -> None:
             json.dumps(
                 {
                     "retriever": args.retriever,
+                    "relevance_gate": args.relevance,
+                    "threshold": relevance.threshold if relevance else None,
                     "total": len(questions),
                     "abstained": abstained,
                     "abstention_rate": round(rate, 4),

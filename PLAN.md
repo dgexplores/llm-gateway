@@ -90,11 +90,13 @@ Measured, on 63 mechanically verified questions over 155 documents:
 
 ### Two limitations, both measured
 
-**1. The gateway cannot detect a question the corpus cannot answer.** On eight such
-questions it answered all eight and reported all eight as grounded: 0% abstention. Two
-candidate gates were measured and both rejected, because the answerable and unanswerable
-score distributions overlap completely. No grounding check can catch this, and the UI
-footer no longer claims it can. See `docs/RESULTS.md`.
+**1. Detecting a question the corpus cannot answer — solved, opt-in.** Left alone, the
+gateway answered all eight unanswerable questions and reported all eight as grounded: 0%
+abstention. Two lexical gates were measured and rejected for overlapping distributions. A
+cross-encoder relevance gate, the third attempt, catches **75%** of them while still
+answering **100%** of answerable questions. Off by default because it costs a model
+download, ~10 ms per query, and a tighter threshold withholds one legitimate answer in
+nine. The measurement and the trade-off are in `docs/RESULTS.md`.
 
 **2. The NLI verifier is not usable as a drop-in.** It rejects every true claim (0/60)
 because it collapses on the ~1,100-character multi-source context the pipeline supplies:
@@ -139,11 +141,12 @@ same list as the things it does.
   collapses from 0.991 to 0.004 as the premise grows to the real multi-source context.
   Found and fixed an inverted logit index in the process, which no test had caught
   because the class was never executed.
-- **Measured the product's main failure mode rather than hiding it.** On 8 questions the
-  corpus cannot answer, the gateway answered all 8 and reported all 8 as grounded —
-  0% abstention. Two candidate relevance gates were measured and both rejected for
-  overlapping score distributions. The UI footer previously claimed otherwise and was
-  corrected.
+- **Measured the product's main failure mode, then fixed it.** The gateway answered all 8
+  questions its corpus could not answer and reported all 8 as grounded — 0% abstention.
+  Two lexical gates were measured and rejected for overlapping score distributions. A
+  cross-encoder relevance gate, the third attempt, reaches **75%** abstention while
+  answering **100%** of answerable questions. Opt-in, with the trade-off documented rather
+  than imposed.
 - CI runs lint, 380 tests, a retrieval gate that refuses to execute without a verified
   golden set, the ablation, and the abstention measurement.
 

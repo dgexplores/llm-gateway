@@ -55,6 +55,14 @@ jobs:
       # drift upward without someone noticing in the log.
       - name: Abstention on unanswerable questions
         run: uv run python scripts/abstention.py --json docs/results/abstention.json
+      # Needs the rag extra for the cross-encoder, and downloads it on the runner. Not
+      # gated: the point is that the number is in the log, so a regression to 0% is
+      # visible rather than silent.
+      - name: Abstention with the relevance gate
+        run: |
+          uv sync --extra rag --extra langchain
+          uv run python scripts/abstention.py --relevance \
+            --json docs/results/abstention_gated.json
 
   # The comparison gate lands with the hybrid retriever. Until there is a baseline to
   # regress against, a gate has nothing to compare.

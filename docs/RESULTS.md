@@ -139,7 +139,8 @@ anyone.
 
 ## Abstention on questions the corpus cannot answer
 
-**0 of 8. The gateway answered every one, and reported every one as grounded.**
+**0 of 8 without a relevance gate; 6 of 8 with one.** The gateway answered every one, and
+reported every one as grounded.
 
 Run it yourself:
 
@@ -174,14 +175,42 @@ a threshold would abstain on good questions while still answering bad ones:
 The second is the more tempting of the two and still fails: the unanswerable maximum
 equals the answerable median.
 
-The honest conclusion is that **this system cannot detect an out-of-corpus question**
-without a model that judges semantic relevance, and no such model is wired up. The
-abstention trigger in the pipeline fires when the generator writes a claim the passages
-do not support; with the extractive demo provider that essentially never happens, because
-the provider quotes the passages by construction.
+### A gate that works: cross-encoder relevance
 
-This is the most important limitation in the repository, and the footer no longer claims
-otherwise.
+The two lexical gates above fail because word overlap is the wrong question. A
+cross-encoder trained for query-passage relevance is the right tool, and one runs locally
+without an API key — `cross-encoder/ms-marco-MiniLM-L-6-v2`.
+
+`RelevanceGate` scores the question against each retrieved passage and judges the best
+one. End to end, through the real pipeline:
+
+| threshold | answerable answered | unanswerable caught |
+|---|---|---|
+| **-9.0 (default)** | **63/63 (100%)** | **6/8 (75%)** |
+| -3.0 | 56/63 (89%) | 8/8 (100%) |
+
+**0% → 75% abstention, at no measured cost to answerable questions.** The two it still
+answers are the ones the corpus does partially discuss; tightening to -3.0 catches them
+too, at the price of withholding one legitimate answer in nine.
+
+```bash
+uv run python scripts/abstention.py --relevance --json docs/results/abstention_gated.json
+```
+
+**It is opt-in and off by default.** It costs a 90 MB model download and roughly 10 ms
+per query, and -3.0 imposes an 11% false-abstention rate. Those are real costs and the
+caller should choose, not inherit. The threshold and both numbers are in
+`src/gateway/relevance.py`.
+
+One correction worth recording: an earlier estimate of this curve, taken by scoring only
+the top-ranked passage, predicted -9.0 would withhold 7 of 63 answerable questions. It
+withholds none. The gate takes the best of *k* passages — if any retrieved passage
+addresses the question, the gateway can answer from it — so scoring top-1 alone measured
+something the gate does not do.
+
+This closes the largest limitation in the project, and it is the third attempt: the two
+lexical gates are kept above, rejected on evidence, so the obvious next person does not
+retry them.
 
 ## Verifier comparison: is the NLI upgrade worth it?
 

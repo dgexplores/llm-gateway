@@ -26,10 +26,12 @@ uv sync --extra lightrag   # knowledge-graph retrieval (heavy; needs a real mode
 > control at 0.000. 63 questions, *mechanically verified* — a verifier proven to reject
 > fabricated answers checked each one against the document it cites.
 >
-> Two measured limitations are published rather than hidden, both in
-> [docs/RESULTS.md](docs/RESULTS.md): the gateway **cannot** detect a question its corpus
-> cannot answer (0% abstention on 8 such questions, all reported as grounded), and the
-> NLI verifier **rejects every true claim** (0/60) because it collapses on long premises.
+> Both a limitation and its fix are published in [docs/RESULTS.md](docs/RESULTS.md). The
+> gateway could not detect a question its corpus cannot answer — 0% abstention, with every
+> answer reported as grounded. An opt-in cross-encoder relevance gate takes that to **75%**
+> while still answering 100% of answerable questions. The NLI verifier, the obvious
+> verification upgrade, **rejects every true claim** (0/60) because it collapses on long
+> premises, so it was not adopted.
 
 ## What it does today
 

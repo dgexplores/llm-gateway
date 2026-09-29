@@ -18,6 +18,7 @@ from .audit import Audit, VerifierGate
 from .citations import Citation, coverage, resolve, split_claims, strip_citations
 from .llm.base import Completion, Message
 from .rag.retriever import Retriever
+from .relevance import RelevanceGate
 from .text import clean_markup, excerpt, truncate_excerpt  # noqa: F401 - re-exported
 from .verify import NullVerifier, Verifier
 
@@ -177,6 +178,7 @@ class Gateway:
         verifier: Verifier | None = None,
         max_revisions: int = 0,
         require_majority: bool = False,
+        relevance: RelevanceGate | None = None,
     ):
         self.retriever = retriever
         self.generator = generator
@@ -190,6 +192,10 @@ class Gateway:
             max_revisions=max_revisions,
             require_majority=require_majority,
         )
+        # Relevance gating is opt-in, like verification. Defaulting it on would impose a
+        # model download and an extra ~10ms on every request to solve a problem the
+        # caller may not have.
+        self.relevance = relevance
         self.instruction = instruction or (
             "Answer the question using only the numbered sources below. "
             "Cite every claim with its source number, like [1]. "
@@ -252,6 +258,42 @@ class Gateway:
         # Verify before binding citations. An invented claim must not be able to earn
         # a citation chip by naming a source that happens to exist.
         context = render_context(sources)
+        # Relevance is checked before grounding, and can withhold the answer outright.
+        # Grounding cannot catch an irrelevant corpus, so this has to come first.
+        if self.relevance is not None:
+            scored = self.relevance.score(
+                question, [(s.chunk_id, s.excerpt) for s in sources]
+            )
+            if not scored.relevant:
+                return Answer(
+                    question=question,
+                    text=(
+                        "None of the retrieved passages address this question, so I am "
+                        "not going to answer it. The closest passage scored "
+                        f"{scored.score:.1f} against a relevance threshold of "
+                        f"{scored.threshold:.1f}."
+                    ),
+                    sources=sources,
+                    claims=[],
+                    # No claims, because nothing was claimed. The audit is honest rather
+                    # than empty-by-accident: it records that the answer was withheld
+                    # before any claim existed to verify.
+                    audit=Audit(
+                        verified=False,
+                        abstained=True,
+                        reason="retrieved passages do not address the question",
+                        verifier=self.gate.verifier.name,
+                    ),
+                    abstained=True,
+                    abstain_reason="irrelevant_passages",
+                    usage=self._usage(completion),
+                    retrieval_ms=retrieval_ms,
+                    generation_ms=generation_ms,
+                    is_demo=bool(completion.metadata.get("demo")),
+                    retrieval_mode=self.retrieval_mode,
+                    generator_mode=self.generator_mode,
+                )
+
         text, audit, _ = self.gate.decide(completion.text, context)
 
         cited, dangling = resolve(text, [s.to_citation() for s in sources])
