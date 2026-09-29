@@ -100,11 +100,64 @@ def variants() -> list[Variant]:
                 ]
             ),
         ),
+        # Dense retrieval, and dense fused with lexical. These are the two rows worth
+        # having: the first says whether semantics beat keywords on this corpus, the
+        # second is where rank fusion finally has two genuinely different opinions to
+        # reconcile rather than two correlated ones.
+        Variant(
+            "semantic",
+            "dense retrieval over sentence-transformers embeddings",
+            lambda docs: _semantic(docs),
+        ),
+        # Dense retrieval on the baseline chunking is the naive number and a misleading
+        # one. A sentence encoder embeds sentences, not 1,200-character technical
+        # chunks; measured over 1200/500/250/100 characters it scores 0.465 / 0.586 /
+        # 0.655 / 0.627, so the baseline chunking was costing dense retrieval about a
+        # third of its accuracy. This row is dense at its best setting, so the table
+        # compares tuned against tuned rather than reporting a loss caused by a
+        # mismatched chunk size.
+        Variant(
+            "semantic_250c",
+            "dense retrieval over 250-char chunks (tuned; best dense setting)",
+            lambda docs: _semantic(docs, target_chars=250, overlap_chars=40),
+        ),
+        Variant(
+            "semantic+bm25",
+            "reciprocal-rank fusion of dense and BM25",
+            lambda docs: HybridRetriever(
+                [_semantic(docs), BM25Retriever.build(chunk_corpus(docs))]
+            ),
+        ),
     ]
 
 
-def build_all(documents: list) -> dict[str, Retriever]:
-    return {v.name: v.build(documents) for v in variants()}
+def _semantic(documents: list, **chunk_kwargs: object) -> Retriever:
+    """Dense retriever. Raises ImportError without the rag extra, which build_all turns
+    into a reported skip rather than a failed run."""
+    from .langchain import LangChainRetriever, SentenceTransformerEmbeddings
+
+    return LangChainRetriever.from_chunks(
+        chunk_corpus(documents, **chunk_kwargs), SentenceTransformerEmbeddings()
+    )
+
+
+def build_all(documents: list) -> tuple[dict[str, Retriever], list[tuple[str, str]]]:
+    """Build every variant, skipping the ones whose extras are missing.
+
+    Returns the retrievers and the list of skips with a reason. Skipping rather than
+    failing is deliberate: the semantic variants need an embedding model, and a CI runner
+    without the extra should still produce the lexical table rather than a stack trace.
+    A silent skip would be worse — every skip is reported and written to the results file,
+    so a table that is quietly missing rows is visible.
+    """
+    built: dict[str, Retriever] = {}
+    skipped: list[tuple[str, str]] = []
+    for variant in variants():
+        try:
+            built[variant.name] = variant.build(documents)
+        except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+            skipped.append((variant.name, f"{type(exc).__name__}: {exc}"))
+    return built, skipped
 
 
 def run(goldens: list[Golden], retrievers: dict[str, Retriever]):
@@ -134,15 +187,21 @@ def main() -> int:
     print()
 
     started = time.perf_counter()
-    retrievers = build_all(documents)
+    retrievers, skipped = build_all(documents)
     rows = run(goldens, retrievers)
     elapsed = time.perf_counter() - started
 
     print(render_table(rows))
     print()
 
+    for name, reason in skipped:
+        print(f"  SKIPPED {name}: {reason}")
+    if skipped:
+        print()
+
     for variant in variants():
-        print(f"  {variant.name:18s} {variant.description}")
+        state = "skipped" if any(name == variant.name for name, _ in skipped) else "ran"
+        print(f"  [{state}] {variant.name:18s} {variant.description}")
     print()
 
     # The gate compares against BM25, the baseline every other row is measured from.

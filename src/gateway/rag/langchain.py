@@ -160,3 +160,40 @@ class LangChainRetriever:
         # worse than no bar.
         found.sort(key=lambda s: s.score, reverse=True)
         return found[:k]
+
+
+class SentenceTransformerEmbeddings:
+    """LangChain ``Embeddings`` backed by a local sentence-transformers model.
+
+    Exists so the semantic path can be measured without an API key. The alternative was
+    claiming "supports semantic retrieval" on the strength of a random-vector fake, which
+    is how a component ends up looking like a feature while behaving like an assumption.
+
+    The model is a real multilingual-capable sentence encoder, loaded locally and cached
+    after the first download. Embeddings are L2-normalised so cosine similarity is a plain
+    dot product, matching what the in-memory store expects.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        **kwargs: object,
+    ) -> None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:  # pragma: no cover - depends on optional extra
+            raise ImportError(
+                "SentenceTransformerEmbeddings needs the rag extra: uv sync --extra rag"
+            ) from exc
+
+        self.model_name = model_name
+        self._model = SentenceTransformer(model_name, **kwargs)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        vectors = self._model.encode(
+            texts, normalize_embeddings=True, show_progress_bar=False
+        )
+        return [list(map(float, row)) for row in vectors]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_documents([text])[0]

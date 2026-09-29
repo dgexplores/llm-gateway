@@ -13,11 +13,11 @@ and they are **not** equivalent to it:
 
 | Adapter | Status | The catch |
 |---|---|---|
-| `gateway.rag.langchain.LangChainRetriever` | tested against real `langchain-core` 1.6.5 | Semantic *quality* is untested — the only embedding available without a network or API key is `DeterministicFakeEmbedding`, whose vectors are random. No published number uses it. |
+| `gateway.rag.langchain.LangChainRetriever` | **measured** in the ablation with a local `all-MiniLM-L6-v2`, no API key | Loses to BM25 on this corpus (0.655 vs 0.869 nDCG@10, tuned). That is the expected result for documentation queries built from exact identifiers, and the reasoning is in `docs/RESULTS.md`. |
 | `gateway.rag.lightrag_retriever.LightRAGRetriever` | parsing and async bridge tested against a fake | LightRAG returns a **synthesized context string**, not scored chunks with document ids, so per-claim citation cannot work. Its chunks carry an empty `doc_id` and `metadata={"synthesized": True}` rather than a fabricated one. No faithful end-to-end run: LightRAG extracts entities with an LLM, and a stub produces zero entities. |
 
 ```bash
-uv sync --extra langchain   # semantic retrieval
+uv sync --extra rag --extra langchain   # semantic retrieval (local embedding model)
 uv sync --extra lightrag   # knowledge-graph retrieval (heavy; needs a real model)
 ```
 

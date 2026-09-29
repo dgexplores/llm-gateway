@@ -106,9 +106,11 @@ rather than build a gate that does not work.
 
 ### Not built, on purpose
 
-- **A semantic-quality number.** The only embedding available without an API key is
-  `DeterministicFakeEmbedding`, whose vectors are random. Both adapters are tested for
-  mechanics; neither is measured for quality, and no published number uses them.
+- **Nothing, here — this was wrong when written.** The semantic path was excluded on the
+  assumption that dense retrieval needs an API key. It does not: `all-MiniLM-L6-v2`
+  downloads and runs locally. The LangChain adapter is now measured in the ablation
+  (0.655 nDCG@10 against BM25's 0.869) and the LightRAG adapter remains unmeasured
+  because it needs an LLM for entity extraction at index time.
 - **A Docker build.** The image and compose file are written but Docker is not installed
   here, so the image has never been built. The docs say so.
 
@@ -126,9 +128,12 @@ same list as the things it does.
   on a Zipf-shaped workload, 79 of 142 provider calls avoided. Found the cache was
   implemented, unit-tested, and **never wired into the client**; a unit test of a class
   cannot tell you nothing calls it.
-- Benchmarked 5 retrieval configurations and a **rank-fusion variant that lost** —
-  BM25 + TF-IDF scored 0.852 against BM25's 0.869 at twice the latency, because two
-  lexical rankers produce correlated rankings and there is nothing for fusion to recover.
+- Benchmarked **9 retrieval configurations** including dense retrieval with a local
+  embedding model. Dense scores 0.655 nDCG@10 against BM25's 0.869, and **both rank-fusion
+  variants lose** — BM25+TF-IDF 0.852, BM25+dense 0.795 — because equal-weight fusion
+  averages in a weaker member rather than using it to break ties. Chunk size turned out to
+  be worth a third of dense's accuracy (0.465 at 1,200c vs 0.655 at 250c), so the tuned
+  number is the one reported.
 - Evaluated the obvious verification upgrade and rejected it on evidence: an NLI
   cross-encoder scores **0/60** on claims the pipeline itself retrieved, because it
   collapses from 0.991 to 0.004 as the premise grows to the real multi-source context.
@@ -148,8 +153,10 @@ same list as the things it does.
   retrieved, but 11 of 12 are answerable from one, so they are labelled `multi-doc` and
   the difficulty gap (0.891 → 0.777) is reported as a retrieval finding, not a reasoning
   one.
-- **No semantic retrieval quality number.** The only embedding available without an API
-  key has random vectors. Both the LangChain and LightRAG adapters are tested for
-  mechanics and excluded from every published number.
+- **Dense retrieval was measured, and lost.** With a local `all-MiniLM-L6-v2` it scores
+  0.655 nDCG@10 against BM25's 0.869, and fusing it in scores 0.795. Chunk size was
+  worth a third of dense's accuracy (0.465 at 1,200c vs 0.655 at 250c), so the tuned
+  number is the one reported. The LangChain adapter is measured; the LightRAG adapter is
+  not, because it needs an LLM for entity extraction at index time.
 - **No verified Docker build.** The image and compose file exist; Docker is not installed
   in the environment they were written in, so the image has never been built.

@@ -76,12 +76,49 @@ tests.
 | `bm25_short` (400 chars) | 0.834 | 0.873 | 0.787 | 0.905 | 5.6 |
 | `hybrid` (BM25 + TF-IDF RRF) | 0.852 | 0.905 | 0.800 | 0.937 | 5.4 |
 
-**Rank fusion does not help here, and costs double.** Fusing BM25 with a TF-IDF cosine
-retriever scored *below* BM25 alone (0.852 vs 0.869) at twice the latency. Two lexical
-rankers over the same corpus produce highly correlated orderings, so there is little for
-reciprocal-rank fusion to recover. The component is real and tested; the combination is
-not worth its cost on this corpus. It would need a genuinely orthogonal second member —
-a dense retriever — to have a chance, and that is a dependency with an API key attached.
+| `semantic` (dense, 1200c chunks) | 0.465 | 0.651 | 0.209 | 0.698 | 15.7 |
+| `semantic_250c` (dense, 250c chunks) | 0.655 | 0.762 | 0.379 | 0.794 | 39.4 |
+| `semantic+bm25` (RRF of dense and BM25) | 0.795 | 0.881 | 0.643 | 0.905 | 19.1 |
+
+**Dense retrieval loses to BM25 on this corpus, and the reason is specific.** The dense
+rows use `sentence-transformers/all-MiniLM-L6-v2`, loaded locally — no API key, and the
+first version of this analysis assumed otherwise, which is why the semantic path was
+originally excluded from the harness. It was measurable all along.
+
+Two separate effects, and the first one was a measurement artefact:
+
+**Chunk size dominated the dense result.** A sentence encoder embeds sentences, not
+1,200-character technical prose. Over 1200 / 500 / 250 / 100-character chunks, dense
+scored:
+
+| chunk size | nDCG@10 | recall@10 |
+|---|---|---|
+| 1200c (the baseline) | 0.465 | 0.651 |
+| 500c | 0.586 | 0.754 |
+| **250c** | **0.655** | **0.762** |
+| 100c | 0.627 | 0.738 |
+
+So the baseline chunking was costing dense retrieval about a third of its accuracy, and
+100c is too small — passages lose the context that makes them matchable. `semantic_250c`
+is in the table so the comparison is tuned against tuned; reporting only the 0.465 would
+have blamed the retriever for a chunking mismatch.
+
+**Even tuned, BM25 wins by 0.21 nDCG.** Documentation questions are made of exact
+identifiers — `status_code`, `BackgroundTasks`, `OAuth2PasswordRequestForm` — and lexical
+matching is precisely right for those while a 384-dimensional embedding blurs them into
+the surrounding prose. This is the expected result for technical documentation with rare
+terms, and it is why a keyword index is the sensible default here rather than a
+conservative one.
+
+**Rank fusion hurts twice, and the second time is the informative one.** Fusing BM25 with
+TF-IDF scores 0.852 and BM25 with dense scores 0.795, both below BM25's 0.869. With
+equal weights, reciprocal-rank fusion averages in a weaker member's opinions instead of
+using it to break ties, so adding a retriever that is worse than the incumbent makes the
+result worse. Rank fusion is a way to combine *comparable* rankers. It paid off nowhere
+here, and the honest conclusion is that it is not worth its latency on this corpus.
+
+The latency column is the other cost: dense is 15x BM25's p95 and fusion of the two is
+7x, for worse accuracy.
 
 ****The baseline does not win.** It is a middle point on a precision/recall trade-off, not
 an optimum:
