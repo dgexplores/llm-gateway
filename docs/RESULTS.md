@@ -97,6 +97,27 @@ It did earn its keep by exposing a bug: nDCG read **1.95** when a retriever retu
 several chunks from one document, because every chunk earned a full position discount.
 The metric is now bounded to 1.0, with a regression test pinning the case.
 
+## Retrievers that are not in the table above
+
+`gateway.rag.langchain.LangChainRetriever` and
+`gateway.rag.lightrag_retriever.LightRAGRetriever` both satisfy the `Retriever` contract
+and are therefore runnable through `scripts/run_eval.py`. **Neither appears in the
+ablation, and no number here comes from either.**
+
+The LangChain retriever is tested against real `langchain-core` 1.6.5 for mechanics:
+ordering, the distance-to-similarity direction, metadata round-trip, k-clamping, and the
+empty result. It is not measured for retrieval quality, because the only embedding
+available without a network or an API key is `DeterministicFakeEmbedding`, whose vectors
+are random. Measured against it, a query about status codes ranks a background-tasks
+passage first. A semantic-quality number from it would be noise with a decimal point.
+
+LightRAG returns a synthesized context string rather than scored chunks, so it cannot be
+scored per document at all, and it is excluded from the harness for that reason rather
+than included with a caveat.
+
+Producing a comparable semantic number needs a real embedding model, which needs a key.
+That is a deliberate omission, not an oversight.
+
 ## Reproducing
 
 ```bash

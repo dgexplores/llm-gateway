@@ -1,0 +1,59 @@
+# Local stack. `docker compose up` should give the same thing as ./scripts/serve.sh,
+# because a demo that only runs one way is a demo that only runs on your machine.
+#
+# The corpus is fetched inside the container from the commit pinned in
+# scripts/fetch_corpus.sh, so it is a volume rather than an image layer: 155 files
+# should not be baked into a build artifact, and the pin belongs in one place.
+#
+# Not verified: Docker is not installed in the environment this was written in, so
+# nothing below has been run. The Dockerfile is written to fail loudly rather than
+# silently serve an empty index — the entrypoint fetches the corpus before uvicorn
+# starts, and the health check fails until the API answers.
+
+services:
+  gateway:
+    build: .
+    image: llm-gateway:local
+    ports:
+      - "8000:8000"
+    environment:
+      # These are the names src/gateway/api.py actually reads. The demo provider needs
+      # no credentials, so a clean clone runs end to end; drop GATEWAY_MODE and set
+      # OLLAMA_HOST or OPENAI_API_KEY and the same image serves live generation.
+      GATEWAY_MODE: demo
+      GATEWAY_CORPUS: /app/corpus
+      GATEWAY_VERIFY: "on"
+    volumes:
+      - corpus:/app/corpus
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=4).status == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Only starts when asked: `docker compose --profile redis up`.
+  # Caching answers is the point of the client, and it needs a real Redis to be worth
+  # measuring, so it is not started implicitly behind the user's back.
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  corpus:

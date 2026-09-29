@@ -4,10 +4,22 @@ A resilient gateway between an application and an LLM provider. It owns the four
 things that break in production and get ignored in demos: provider failure, repeated
 cost, unsupported answers, and missing traces.
 
-**Status:** Modules 1–3 complete. Resilient client, cache, retrieval with an evaluation
-harness, a working UI, and claim verification with abstention. Docker and the final
-docs are the remaining items in [PLAN.md](PLAN.md); design rationale in
-[ARCHITECTURE.md](ARCHITECTURE.md).
+**Status:** Resilient client, cache, retrieval with an evaluation harness, a working UI,
+claim verification with abstention, LangChain and LightRAG adapters, and a container
+image. Design rationale in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+Two adapters sit behind the same `Retriever` contract as BM25 so they can be compared,
+and they are **not** equivalent to it:
+
+| Adapter | Status | The catch |
+|---|---|---|
+| `gateway.rag.langchain.LangChainRetriever` | tested against real `langchain-core` 1.6.5 | Semantic *quality* is untested — the only embedding available without a network or API key is `DeterministicFakeEmbedding`, whose vectors are random. No published number uses it. |
+| `gateway.rag.lightrag_retriever.LightRAGRetriever` | parsing and async bridge tested against a fake | LightRAG returns a **synthesized context string**, not scored chunks with document ids, so per-claim citation cannot work. Its chunks carry an empty `doc_id` and `metadata={"synthesized": True}` rather than a fabricated one. No faithful end-to-end run: LightRAG extracts entities with an LLM, and a stub produces zero entities. |
+
+```bash
+uv sync --extra langchain   # semantic retrieval
+uv sync --extra lightrag   # knowledge-graph retrieval (heavy; needs a real model)
+```
 
 > **Results published.** BM25 reaches **nDCG@10 0.891** and **recall@10 0.922** at
 > 3.5 ms p95 over 1,448 chunks, on a corpus pinned by commit. The 51 questions are
@@ -184,7 +196,22 @@ uv run ruff check .
 ```
 
 Optional extras: `--extra rag` (embeddings, reranking, NLI), `--extra serve`
-(FastAPI), `--extra cache` (Redis).
+(FastAPI), `--extra cache` (Redis), `--extra langchain` (vector-store retrieval),
+`--extra lightrag` (knowledge-graph retrieval).
+
+## Running it in a container
+
+```bash
+docker compose up --build            # http://localhost:8000
+docker compose --profile redis up    # adds Redis for the response cache
+```
+
+The image fetches the pinned corpus at start-up rather than baking 155 files into a
+layer, and runs as a non-root user. **Unverified:** Docker was not installed in the
+environment this was written in, so the image has never been built. The Dockerfile and
+`docker-compose.yml` are written to fail loudly rather than quietly serve an empty
+index — the entrypoint fetches the corpus before uvicorn starts, and the health check
+fails until the API answers.
 
 ## What the numbers are worth
 

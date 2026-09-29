@@ -26,6 +26,21 @@ serve = [
 cache = [
     "redis>=5.0",
 ]
+# Semantic retrieval behind the same Retriever contract as BM25, so the two can be
+# benchmarked against each other. langchain-core carries the vector store and the
+# Embeddings interface; the embedding model itself is the caller's choice and is not
+# pinned here, because it is the one decision that determines whether semantic
+# retrieval beats lexical on this corpus.
+langchain = [
+    "langchain-core>=1.0",
+    "numpy>=1.26",
+]
+# LightRAG knowledge-graph retrieval. Heavy: it extracts entities with an LLM at index
+# time, so it needs a real model and a writable working directory to be useful.
+lightrag = [
+    "lightrag-hku>=1.4",
+    "numpy>=1.26",
+]
 
 [dependency-groups]
 dev = [
