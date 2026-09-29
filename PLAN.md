@@ -63,20 +63,32 @@ surface area without adding signal.
 
 ## Milestone mapping
 
-| Week | Modules | Ship state |
+| Module | Ship state | Done |
 |---|---|---|
-| 1 | 1, 2 | Resilient client with caching, measured |
-| 2 | 3 | RAG with a real retrieval number |
-| 3 | 4, 5 | Verification and a CI gate that catches regressions |
-| 4 | 6 | Full stack, demo video, README |
+| 1 | Resilient client, cache, usage accounting | yes |
+| 2 | Retrieval, evaluation harness, API, UI | yes |
+| 3 | Verification, abstention, hybrid fusion, ablation | yes |
+| 4 | Docker, demo recording, published results | blocked on human review |
 
 ## Status
 
-Modules 1 and 2 complete. Module 3 (verification) not started.
+Modules 1–3 complete. Module 4 (serving and documentation) is the last one, and part of
+it is done; see below.
 
 Shipped: provider failover with circuit breaking, usage accounting, cache, the
-`Retriever` contract, chunking, `BM25Retriever`, an evaluation harness whose CI gate
-refuses to run over unreviewed questions, a FastAPI service, and a zero-build UI.
+`Retriever` contract, chunking, `BM25Retriever`, reciprocal-rank hybrid fusion, an
+evaluation harness whose CI gate refuses to run over unreviewed questions, a FastAPI
+service, a zero-build UI, and claim verification with calibrated abstention.
+
+Remaining before the project is complete:
+
+1. **Human review of the golden set** — 51 questions, ~20 minutes. This is the only
+   blocker on publishing a retrieval number, and it is the one thing the code cannot do
+   for itself.
+2. **Docker Compose** — Redis, Postgres, Phoenix. Optional: the service is fully
+   functional without it, and Docker is not installed on this machine.
+3. **A demo recording** — the UI is verified in a browser; a 30-second video is the
+   difference between a project someone reads and one someone watches.
 
 **No published number yet, deliberately.** A provisional run over 51 unreviewed
 questions gave BM25 nDCG@10 ≈ 0.89, p95 2.7 ms, over 1,448 chunks from 155

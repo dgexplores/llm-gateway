@@ -4,13 +4,13 @@ A resilient gateway between an application and an LLM provider. It owns the four
 things that break in production and get ignored in demos: provider failure, repeated
 cost, unsupported answers, and missing traces.
 
-**Status:** Modules 1 and 2 complete. Resilient client, cache, retrieval, evaluation
-harness, HTTP API, and a working UI. Verification and the ablation comparison are
-planned in [PLAN.md](PLAN.md); design rationale in [ARCHITECTURE.md](ARCHITECTURE.md).
+**Status:** Modules 1–3 complete. Resilient client, cache, retrieval with an evaluation
+harness, a working UI, and claim verification with abstention. Docker and the final
+docs are the remaining items in [PLAN.md](PLAN.md); design rationale in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
-> **No results published yet, on purpose.** The evaluation harness runs, but its CI
-> gate refuses to execute over unreviewed questions. See
-> [Why there are no numbers](#why-there-are-no-numbers-yet).
+> **No results published yet, on purpose.** The harness runs, but its gate refuses to
+> execute over unreviewed questions. See [docs/RESULTS.md](docs/RESULTS.md).
 
 ## What it does today
 
@@ -113,8 +113,23 @@ treats the chunk list as ground truth.
 uv run python -m gateway.rag.label     # propose questions from the corpus
 #   a human reviews each row and sets "review": "OK"
 uv run python -m gateway.rag.promote    # only OK rows reach the gate
-uv run python scripts/run_eval.py      # nDCG@10, recall@10, MRR, hit@10, p95
+uv run python scripts/ablation.py       # the comparison table
 ```
+
+The ablation set isolates one decision per row and includes a no-retrieval control,
+because a comparison without a control cannot show that retrieval is doing anything:
+
+| Variant | What it changes |
+|---|---|
+| `none` | no retrieval — the control |
+| `bm25` | baseline: 1200-char chunks, 200-char overlap |
+| `bm25_no_overlap` | chunk overlap disabled |
+| `bm25_long` / `bm25_short` | 2400 / 400-char chunks |
+
+`HybridRetriever` fuses several retrievers by reciprocal rank fusion, which uses rank
+rather than score because the members' scores are not on a comparable scale.
+`explain_fusion` reports each member's contribution, so a fused ranking is auditable
+rather than magic.
 
 Metrics are split by whether they are deterministic:
 
@@ -133,7 +148,30 @@ about how the question was constructed rather than an annotator's guess. That tu
 five-hour annotation task into a review task, and makes the labels checkable. Only the
 answer text needs human eyes.
 
-## Development
+## Verification
+
+Every claim in an answer is checked against the retrieved text before it is released.
+
+| Behaviour | When |
+|---|---|
+| Answer passes through | every claim grounded in the sources |
+| Unsupported claims removed, answer released | some claims grounded |
+| **Answer withheld entirely** | nothing grounded |
+
+A fabricated claim cannot earn a citation by naming a real source — the verifier runs
+*before* citation binding, so "the status code is cached in Redis [1]" is withheld even
+though [1] exists. Citation presence is not evidence.
+
+The default verifier is lexical and needs no model, so verification runs in CI and on a
+clean clone. It is the weakest useful check, not a good one: it catches invented facts
+and flags paraphrase gaps, and it cannot tell entailment from word overlap.
+`NliVerifier` upgrades this to a real entailment model when `transformers` is installed.
+
+Verification is **on whenever a corpus is loaded** and off otherwise. With nothing to
+verify against, a gate could only pass or fail arbitrarily, so it reports
+`verifying: false` in `/api/health` rather than pretending.
+
+## Evaluating a retriever
 
 ```bash
 uv sync --group dev          # core only, no heavy ML deps
@@ -146,12 +184,15 @@ Optional extras: `--extra rag` (embeddings, reranking, NLI), `--extra serve`
 
 ## Why there are no numbers yet
 
-A provisional run over 51 unreviewed questions produced BM25 nDCG@10 ≈ 0.89 at 2.7 ms
-p95 across 1,448 chunks. It did two useful things: it proved the harness works, and it
-exposed that nDCG could exceed 1.0 when a retriever returned many chunks from one
-document (now bounded, with a regression test). The result file was then **deleted**,
-because the questions had not been verified by a human.
+A provisional run over 51 unreviewed questions produced BM25 nDCG@10 0.89 at 2.7 ms p95
+across 1,448 chunks. It proved the harness works and exposed that nDCG could exceed 1.0
+when a retriever returned several chunks from one document — it reported 1.95, since
+each chunk earned a full position discount. Bounded now, with a regression test.
 
-That is the operating rule: `docs/RESULTS.md` is generated from usage records and a
-human-reviewed golden set, never written by hand. An unmeasured number is a liability
-in an interview, and an unverified one is worse.
+The result file was then **deleted**, because the questions had never been checked by a
+person. A plausible number from an unverified set is worse than no number, because it
+looks like evidence. The full account is in [docs/RESULTS.md](docs/RESULTS.md).
+
+```bash
+uv run python -m gateway.rag.label     # 51 rows to review, ~20 minutes
+```
