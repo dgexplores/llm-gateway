@@ -64,6 +64,10 @@ class AppState:
             return "demo"
         return "rag"
 
+    @property
+    def verifier(self) -> str:
+        return self.gateway.gate.verifier.name
+
 
 def build_retriever(corpus_dir: Path = CORPUS_DIR) -> tuple[Retriever, int, int]:
     """Build the retriever, degrading to none when the corpus is absent.
@@ -157,6 +161,7 @@ def create_app(corpus_dir: Path = CORPUS_DIR) -> FastAPI:
             "documents": state.document_count,
             "chunks": state.chunk_count,
             "verifying": state.verifying,
+            "verifier": state.verifier,
         }
 
     @app.get("/api/sources")

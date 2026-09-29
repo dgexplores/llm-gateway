@@ -3,68 +3,118 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LLM Gateway</title>
+<title>Gateway — retrieval you can check</title>
+<meta name="description" content="A resilient LLM gateway that shows the sources, scores, cost, and claim-level verification behind every answer.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23245a4a'/%3E%3Cpath d='M9 21V11m0 0 4.5 5L18 11m0 10v-4.5h5V11' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-<header class="bar">
-  <div class="brand">
-    <span class="dot" id="health-dot" title="checking"></span>
-    <h1>LLM Gateway</h1>
+
+<a class="skip" href="#ask">Skip to the question</a>
+
+<header class="masthead">
+  <div class="masthead-in">
+    <h1>Gateway</h1>
+    <p class="masthead-sub">retrieval you can check</p>
+    <div class="statuspill" id="health" data-state="loading">
+      <span class="statuspill-dot" aria-hidden="true"></span>
+      <span id="health-text">checking</span>
+    </div>
   </div>
-  <div class="meta" id="health-meta">checking service</div>
 </header>
 
 <main>
-  <section class="panel ask">
+
+  <!-- The one elevated surface. Everything else is flat, so the primary action and
+       the primary content are distinguishable by elevation alone. -->
+  <section class="compose" id="ask">
     <label class="field">
-      <span class="label">Question</span>
-      <textarea id="question" rows="3" maxlength="2000"
-        placeholder="What does the documentation say about response status codes?"></textarea>
+      <span class="field-label">Question</span>
+      <textarea id="question" rows="3" maxlength="2000" spellcheck="false"
+        placeholder="How do I return a custom response from a route?"></textarea>
     </label>
 
-    <div class="controls">
-      <label class="k">
+    <div class="compose-bar">
+      <label class="passages">
         <span>Passages</span>
-        <input id="topk" type="number" min="1" max="25" value="5">
+        <input id="topk" type="number" min="1" max="25" value="5" inputmode="numeric">
       </label>
-      <div class="examples" id="examples"></div>
-      <button id="go" class="primary">Ask</button>
+
+      <div class="compose-spacer"></div>
+
+      <button id="go" class="ask" type="button">Ask</button>
     </div>
 
-    <div id="status" class="status" hidden></div>
-
-    <div id="answer-wrap" class="answer-wrap" hidden>
-      <div class="answer-head">
-        <h2>Answer</h2>
-        <span id="demo-badge" class="badge warn" hidden>demo output</span>
-      </div>
-      <div id="answer" class="answer"></div>
-      <p id="dangling" class="dangling" hidden></p>
-      <div id="audit" class="audit" hidden>
-        <span class="audit-label">VERIFICATION</span>
-        <span id="audit-text"></span>
-      </div>
+    <div class="try">
+      <span class="try-label">Try one of these</span>
+      <div class="try-list" id="examples"></div>
     </div>
+
+    <p class="hint"><kbd>⌘</kbd><kbd>↵</kbd> to ask</p>
   </section>
 
-  <div class="split">
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Sources</h2>
-        <span id="coverage" class="badge"></span>
-      </div>
-      <ol id="sources" class="sources"></ol>
-    </section>
+  <p id="status" class="alert" role="status" aria-live="polite" hidden></p>
 
-    <section class="panel">
-      <h2>Call</h2>
-      <dl id="usage" class="usage"></dl>
-      <h3 class="sub">Claims</h3>
-      <ul id="claims" class="claims"></ul>
-    </section>
+  <div class="columns" id="results" hidden>
+
+    <div class="narrative">
+
+      <!-- The answer is content, so it is carried by measure and type rather than by a
+           container. A box around it would compete with the evidence below it. -->
+      <article class="answer" id="answer-wrap" hidden>
+        <div class="answer-head">
+          <h2>Answer</h2>
+          <span class="tag tag-demo" id="demo-badge" hidden>demo output</span>
+          <span class="tag tag-cited" id="cited-badge" hidden></span>
+        </div>
+
+        <div id="answer" class="prose"></div>
+
+        <p id="dangling" class="alert alert-bad" hidden></p>
+
+        <div id="audit" class="audit" hidden>
+          <span class="audit-tag">Verified</span>
+          <span id="audit-text"></span>
+        </div>
+      </article>
+
+      <!-- Sources are references to be scanned, not cards to be admired, so they are a
+           ledger with rules rather than a stack of boxes. -->
+      <section class="panel ledger" id="sources-panel" hidden>
+        <div class="panel-head">
+          <h2 class="section-label">Sources</h2>
+          <span class="panel-note" id="corpus-note"></span>
+        </div>
+        <ol id="sources" class="sources"></ol>
+      </section>
+
+      <section class="claims" id="claims-block" hidden>
+        <h3 class="section-label">Claim by claim</h3>
+        <ul id="claims" class="claims"></ul>
+      </section>
+
+    </div>
+
+    <aside class="rail" id="rail" hidden>
+      <div class="panel">
+        <h2 class="section-label">This call</h2>
+        <dl id="usage" class="figures"></dl>
+        <h3 class="section-label section-gap">Under the hood</h3>
+        <dl id="mode" class="figures"></dl>
+      </div>
+    </aside>
+
   </div>
+
 </main>
+
+<footer class="foot">
+  <p>
+    Every answer carries the sources it used, the score each one earned, the cost of
+    the call, and a per-claim verification verdict. When nothing supports an answer,
+    the gateway withholds it.
+  </p>
+</footer>
 
 <script src="/static/app.js"></script>
 </body>

@@ -136,6 +136,15 @@ class LLMClient:
 
         raise ProviderExhausted(errors)
 
+    @property
+    def name(self) -> str:
+        """The provider chain, in the order it will be attempted.
+
+        A client fronts several providers so it has no single identity; the chain is
+        what a user needs to see when an answer came from the wrong place.
+        """
+        return "→".join(p.name for p in self.providers) or "none"
+
     def _backoff(self, attempt: int) -> float:
         ceiling = min(BACKOFF_CAP_S, BACKOFF_BASE_S * 2 ** (attempt - 1))
         return self._rng.uniform(0, ceiling)

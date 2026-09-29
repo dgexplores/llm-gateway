@@ -20,9 +20,11 @@ jobs:
       - name: Test
         run: uv run pytest -q
 
-  # The retrieval gate. It only runs once a human has reviewed and promoted the
-  # golden set, because a gate over unreviewed questions measures nothing and would
-  # still be treated as authoritative.
+  # The retrieval gate. It only runs once the golden set exists, because a gate over
+  # unverified questions measures nothing and would still be treated as authoritative.
+  # The set is mechanically verified, not hand-verified: gateway.rag.verify_set checks
+  # each answer against the document its label cites. See docs/RESULTS.md for what that
+  # does and does not establish.
   rag-gate:
     runs-on: ubuntu-latest
     steps:
@@ -35,8 +37,9 @@ jobs:
         run: |
           if [ ! -f evals/goldens.jsonl ]; then
             echo "evals/goldens.jsonl is absent."
-            echo "Run: uv run python -m gateway.rag.label, review each row, then"
-            echo "     uv run python -m gateway.rag.promote"
+            echo "Run: uv run python -m gateway.rag.label   # propose questions"
+            echo "     uv run python -m gateway.rag.verify_set  # verify mechanically"
+            echo "     uv run python -m gateway.rag.promote     # promote OK rows"
             exit 1
           fi
       - name: Fetch the pinned corpus

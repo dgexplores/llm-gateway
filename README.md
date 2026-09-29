@@ -9,8 +9,11 @@ harness, a working UI, and claim verification with abstention. Docker and the fi
 docs are the remaining items in [PLAN.md](PLAN.md); design rationale in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-> **No results published yet, on purpose.** The harness runs, but its gate refuses to
-> execute over unreviewed questions. See [docs/RESULTS.md](docs/RESULTS.md).
+> **Results published.** BM25 reaches **nDCG@10 0.891** and **recall@10 0.922** at
+> 3.5 ms p95 over 1,448 chunks, on a corpus pinned by commit. The 51 questions are
+> *mechanically verified*, not hand-verified — a verifier proven to reject fabricated
+> answers checked each one against the document it cites. What that does and does not
+> establish is spelled out in [docs/RESULTS.md](docs/RESULTS.md).
 
 ## What it does today
 
@@ -110,10 +113,11 @@ treats the chunk list as ground truth.
 
 ```bash
 ./scripts/fetch_corpus.sh              # pinned FastAPI docs, MIT, 155 files
-uv run python -m gateway.rag.label     # propose questions from the corpus
-#   a human reviews each row and sets "review": "OK"
-uv run python -m gateway.rag.promote    # only OK rows reach the gate
-uv run python scripts/ablation.py       # the comparison table
+uv run python -m gateway.rag.label       # propose questions from the corpus
+uv run python -m gateway.rag.verify_set  # check each answer against its cited document
+uv run python -m gateway.rag.promote     # only verified rows reach the gate
+uv run python scripts/run_eval.py        # writes docs/results/bm25.{json,md}
+uv run python scripts/ablation.py        # the comparison table
 ```
 
 The ablation set isolates one decision per row and includes a no-retrieval control,
@@ -182,17 +186,26 @@ uv run ruff check .
 Optional extras: `--extra rag` (embeddings, reranking, NLI), `--extra serve`
 (FastAPI), `--extra cache` (Redis).
 
-## Why there are no numbers yet
+## What the numbers are worth
 
-A provisional run over 51 unreviewed questions produced BM25 nDCG@10 0.89 at 2.7 ms p95
-across 1,448 chunks. It proved the harness works and exposed that nDCG could exceed 1.0
-when a retriever returned several chunks from one document — it reported 1.95, since
-each chunk earned a full position discount. Bounded now, with a regression test.
+BM25 scores nDCG@10 **0.891**, recall@10 **0.922**, MRR **0.846** over 51 questions and
+1,448 chunks, with a no-retrieval control scoring 0.000.
 
-The result file was then **deleted**, because the questions had never been checked by a
-person. A plausible number from an unverified set is worse than no number, because it
-looks like evidence. The full account is in [docs/RESULTS.md](docs/RESULTS.md).
+Two things keep this honest, and both are in
+[docs/RESULTS.md](docs/RESULTS.md) in full:
 
-```bash
-uv run python -m gateway.rag.label     # 51 rows to review, ~20 minutes
-```
+**The verifier is shown to reject.** It accepted 51 of 51, which is exactly the result
+a verifier that does nothing would also produce. So `tests/test_verify_set.py` asserts
+that a fabricated answer, an answer citing the wrong document, a broken label, an empty
+answer, and a near-duplicate pair are all rejected. Without those controls the headline
+number would be decoration.
+
+**The set has known weaknesses.** All 51 questions are single-hop, so the difficulty
+breakdown measures nothing. They are generated from the corpus, so they inherit its
+vocabulary and flatter lexical retrieval. 51 is a small sample; treat differences under
+about 0.02 nDCG as noise. The set is *mechanically* verified — that the answers are
+supported by the documents they cite — and not *hand*-verified, because nothing here
+checked whether the questions are good.
+
+An earlier run was deleted for exactly this reason. A plausible number from an
+unverified set is worse than no number, because it looks like evidence.

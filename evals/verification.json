@@ -1,0 +1,10 @@
+{
+  "total": 51,
+  "accepted": 51,
+  "rejected": 0,
+  "by_status": {
+    "OK": 51
+  },
+  "min_support": 0.75,
+  "failures": []
+}

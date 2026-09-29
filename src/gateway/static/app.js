@@ -1,209 +1,291 @@
-/* Zero build step on purpose: no bundler, no node_modules, no toolchain to break.
-   The cost is that this is hand-written rather than componentised, which is a fair
-   trade for a project meant to be cloned and run. */
+/* Gateway UI.
+
+   Zero build step on purpose: no bundler, no node_modules, no toolchain to break. The
+   cost is that this is hand-written rather than componentised, which is a fair trade
+   for a project meant to be cloned and run.
+
+   One rule governs the rendering: a number must look like a number, and text the
+   system did not verify must not look like text it did. */
 
 const $ = (id) => document.getElementById(id);
-const el = (tag, cls, text) => {
+
+const el = (tag, className, text) => {
   const node = document.createElement(tag);
-  if (cls) node.className = cls;
+  if (className) node.className = className;
   if (text != null) node.textContent = text;
   return node;
 };
 
-const state = { sources: [], active: null };
+const reducedMotion = () =>
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const state = { sources: [] };
 
 const EXAMPLES = [
   "How do I return a custom response?",
   "What is dependency injection?",
   "How are background tasks run?",
-  "What does the middleware documentation cover?",
+  "How do I set a response status code?",
 ];
 
-/* Health drives everything the user sees. A running service in demo mode and one with
-   retrieval enabled answer very differently, so the mode is shown, not assumed. */
+/* ── health ─────────────────────────────────────────────────────────────── */
+
+/* Reports the mode, not just liveness. A running service in demo mode answers
+   completely differently from one with retrieval and a model behind it, and a user
+   cannot tell those apart from a green tick. */
 async function refreshHealth() {
-  const dot = $("health-dot");
-  const meta = $("health-meta");
+  const pill = $("health");
+  const text = $("health-text");
+
   try {
-    const res = await fetch("/api/health");
-    if (!res.ok) throw new Error(res.statusText);
+    const res = await fetch("/api/health", { headers: { accept: "application/json" } });
+    if (!res.ok) throw new Error(String(res.status));
     const h = await res.json();
-    dot.className = "dot ok";
-    const bits = [
-      `mode=${h.mode}`,
-      `retriever=${h.retriever}`,
-      h.chunks ? `${h.chunks} chunks` : "no corpus",
-      `providers=${(h.providers || []).join(",") || "none"}`,
-    ];
-    meta.textContent = bits.join(" · ");
+
+    pill.dataset.state = "ok";
+    const bits = [h.retriever];
+    if (h.chunks) bits.push(`${h.chunks.toLocaleString()} chunks`);
+    if (h.verifying) bits.push("verifying");
+    if (h.providers?.length) bits.push(h.providers.join(" + "));
+    text.textContent = bits.join(" · ");
+    pill.title =
+      `mode ${h.mode} · retriever ${h.retriever} · ${h.documents} documents · ` +
+      `verification ${h.verifying ? "on" : "off"}`;
   } catch (err) {
-    dot.className = "dot bad";
-    meta.textContent = `service unreachable (${err.message})`;
+    pill.dataset.state = "down";
+    text.textContent = "unreachable";
+    pill.title = `The service did not respond: ${err.message}`;
   }
 }
 
-/* Render the answer and turn every [n] into a clickable chip. A citation that does not
-   resolve is styled as dangling rather than hidden: a broken marker in a UI implies
-   support that was never established. */
+/* ── answer ─────────────────────────────────────────────────────────────── */
+
 function renderAnswer(payload) {
   const box = $("answer");
   box.replaceChildren();
 
-  // One flowing paragraph, not one element per sentence. Splitting the answer into
-  // paragraphs pushed every citation chip onto a line of its own, which reads as a
-  // layout bug rather than as an annotated claim.
+  // One flowing paragraph. Splitting the answer into a block per sentence pushed
+  // every citation onto a line of its own, which reads as a layout fault rather than
+  // as an annotated claim.
   const para = el("p");
   const parts = payload.text.split(/(\[\d+\])/g);
 
   for (const part of parts) {
     const match = /^\[(\d+)\]$/.exec(part);
     if (!match) {
-      if (part.trim()) para.appendChild(document.createTextNode(part));
+      if (part) para.appendChild(document.createTextNode(part));
       continue;
     }
     const index = Number(match[1]);
-    const chip = el("span", "cite", String(index));
     const resolved = payload.sources.some((s) => s.index === index);
-    if (!resolved) chip.classList.add("dangling");
-    chip.title = resolved ? `Jump to source ${index}` : `Citation ${index} did not resolve`;
+    const chip = el("button", resolved ? "cite" : "cite broken", String(index));
+    chip.type = "button";
+    chip.dataset.index = String(index);
+    if (resolved) {
+      chip.title = `Source ${index}`;
+      chip.setAttribute("aria-label", `Jump to source ${index}`);
+    } else {
+      chip.title = `Citation ${index} does not resolve to a retrieved source`;
+      chip.setAttribute("aria-label", chip.title);
+    }
     chip.addEventListener("click", () => focusSource(index));
     para.appendChild(chip);
   }
+
   box.appendChild(para);
 
   $("demo-badge").hidden = !payload.is_demo;
-  $("dangling").hidden = (payload.dangling_citations || []).length === 0;
-  if (payload.dangling_citations?.length) {
+
+  const broken = payload.dangling_citations || [];
+  $("dangling").hidden = broken.length === 0;
+  if (broken.length) {
     $("dangling").textContent =
-      `Unresolved citations: ${payload.dangling_citations.join(", ")} — the model referenced a source that was not retrieved.`;
+      `The answer cites ${broken.join(", ")}, which was not retrieved. ` +
+      "Treat those claims as unsupported.";
   }
+
+  $("cited-badge").hidden = !payload.sources.length;
+  $("cited-badge").textContent = `cited ${Math.round((payload.coverage || 0) * 100)}% of sources`;
 }
+
+/* ── sources ────────────────────────────────────────────────────────────── */
 
 function renderSources(payload) {
   const list = $("sources");
   list.replaceChildren();
   state.sources = payload.sources;
-
-  for (const s of payload.sources) {
-    const li = el("li", s.cited ? "cited" : null);
-    li.dataset.index = String(s.index);
-
-    const head = el("div", "s-head");
-    head.appendChild(el("span", "s-doc", s.doc_id));
-    head.appendChild(el("span", "score", s.score.toFixed(3)));
-    li.appendChild(head);
-    li.appendChild(el("div", "s-text", s.excerpt));
-    li.addEventListener("click", () => focusCitation(s.index));
-
-    list.appendChild(li);
-  }
+  $("corpus-note").textContent = `${payload.sources.length} retrieved`;
 
   if (!payload.sources.length) {
-    list.appendChild(el("li", null, "No passages matched. The gateway will not answer without sources."));
+    const empty = el("div", "empty");
+    empty.append(
+      el("strong", null, "Nothing matched."),
+      document.createTextNode(
+        " The gateway will not answer from memory when a question has no " +
+          "supporting passage — try different terms, or raise the passage count."
+      )
+    );
+    list.appendChild(empty);
+    return;
   }
-  $("coverage").textContent = `cited ${(payload.coverage * 100).toFixed(0)}%`;
+
+  payload.sources.forEach((s, position) => {
+    const row = el("li", s.cited ? "used" : null);
+    row.dataset.index = String(s.index);
+
+    const head = el("div", "ledger-head");
+    const id = el("span", "ledger-id", s.doc_id);
+    id.dataset.n = String(s.index);
+    head.append(id, el("span", "score", s.score.toFixed(2)));
+    row.append(head, el("p", "ledger-text", s.excerpt));
+
+    row.addEventListener("click", () => lightSources(s.index));
+    row.addEventListener("mouseenter", () => lightChips(s.index));
+    row.addEventListener("mouseleave", () => lightChips(null));
+    list.appendChild(row);
+
+    // The one authored moment: rows settle into place in the order the answer
+    // cites them, so the path from a claim to its evidence is visible as motion.
+    if (!reducedMotion()) {
+      row.classList.add("settle");
+      row.style.animationDelay = `${position * 34}ms`;
+    }
+  });
 }
 
-/* The audit is the answer's trustworthiness made inspectable: how many claims were
-   checked, how many failed, and whether the answer was withheld entirely. */
+/* ── instrumentation ────────────────────────────────────────────────────── */
+
+function renderUsage(payload) {
+  const u = payload.usage || {};
+  const rows = [
+    ["Model", u.model || "—"],
+    ["Retrieval", `${payload.retrieval_ms} ms`],
+    ["Generation", `${payload.generation_ms} ms`],
+    ["Prompt tokens", u.prompt_tokens ?? 0],
+    ["Completion tokens", u.completion_tokens ?? 0],
+    ["Total tokens", u.total_tokens ?? 0],
+  ];
+  fillFigures($("usage"), rows);
+
+  fillFigures($("mode"), [
+    ["Retriever", payload.retrieval_mode || "—"],
+    ["Verifying", payload.verified ? "yes" : "no"],
+    ["Dangling citations", (payload.dangling_citations || []).length],
+  ]);
+}
+
+function fillFigures(dl, rows) {
+  dl.replaceChildren();
+  for (const [key, value] of rows) {
+    dl.append(el("dt", null, key), el("dd", null, String(value)));
+  }
+}
+
 function renderAudit(payload) {
   const box = $("audit");
   const audit = payload.audit;
+
   if (!audit || !audit.verified) {
     box.hidden = true;
     return;
   }
+
   box.hidden = false;
-
   const parts = [
-    `${audit.supported}/${audit.claims.length} claims grounded`,
-    `verifier ${audit.verifier}`,
+    `${audit.supported} of ${audit.claims.length} claims grounded in the sources`,
   ];
-  if (audit.abstained) parts.push(`withheld (${payload.abstain_reason})`);
+  if (audit.abstained) parts.push(`answer withheld — ${payload.abstain_reason.replace(/_/g, " ")}`);
   if (audit.revisions) parts.push(`${audit.revisions} revision`);
-
   $("audit-text").textContent = parts.join(" · ");
-  $("audit").className = "audit" + (audit.abstained ? " bad" : audit.unsupported ? " warn" : "");
+
+  box.dataset.tone = payload.abstained ? "bad" : audit.unsupported ? "warn" : "ok";
 }
 
-function renderUsage(payload) {
-  const dl = $("usage");
-  dl.replaceChildren();
-  const u = payload.usage || {};
-  const rows = [
-    ["retrieval", `${payload.retrieval_ms} ms`],
-    ["generation", `${payload.generation_ms} ms`],
-    ["model", u.model || "-"],
-    ["prompt tokens", u.prompt_tokens ?? 0],
-    ["completion tokens", u.completion_tokens ?? 0],
-    ["total tokens", u.total_tokens ?? 0],
-  ];
-  for (const [k, v] of rows) {
-    dl.appendChild(el("dt", null, k));
-    dl.appendChild(el("dd", null, String(v)));
-  }
-}
+/* ── claims ─────────────────────────────────────────────────────────────── */
 
-/* Claims make partial failure visible. An answer can be supported on one point and
-   fabricated on another, and a single answer-level verdict hides that. */
+/* Per-claim attribution exists to make a *partial* answer visible. A single
+   answer-level verdict hides the case that matters: right on one point, invented on
+   another. */
 function renderClaims(payload) {
-  const ul = $("claims");
-  ul.replaceChildren();
-  const byText = new Map((payload.audit?.claims || []).map((c) => [c.text, c]));
-  for (const claim of payload.claims || []) {
-    const verdict = byText.get(claim.text);
+  const block = $("claims-block");
+  const list = $("claims");
+  list.replaceChildren();
+
+  const claims = payload.claims || [];
+  block.hidden = claims.length === 0;
+  if (!claims.length) return;
+
+  const verdicts = new Map((payload.audit?.claims || []).map((c) => [c.text, c]));
+
+  for (const claim of claims) {
+    const verdict = verdicts.get(claim.text);
+    const flagged = claim.uncited || (verdict && !verdict.supported);
     const refs = claim.citations?.length ? claim.citations.join(", ") : "no citation";
-    // An unsupported claim is the finding this panel exists to surface, so it is
-    // marked in the same class as an uncited one rather than hidden.
-    const bad = claim.uncited || (verdict && !verdict.supported);
-    const li = el("li", bad ? "uncited" : null);
-    li.textContent = verdict
-      ? `${verdict.supported ? "supported" : "UNSUPPORTED"} — ${claim.text} [${refs}]`
+    const label = verdict
+      ? `${verdict.supported ? "supported" : "unsupported"} — ${claim.text} [${refs}]`
       : `${claim.text} [${refs}]`;
-    ul.appendChild(li);
+    list.appendChild(el("li", flagged ? "flagged" : null, label));
   }
+}
+
+/* ── linking a claim to its evidence ────────────────────────────────────── */
+
+function lightSources(index) {
+  document.querySelectorAll(".sources li").forEach((row) => {
+    row.classList.toggle("lit", row.dataset.index === String(index));
+  });
+  const row = document.querySelector(`.sources li[data-index="${index}"]`);
+  if (row) row.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "nearest" });
+}
+
+function lightChips(index) {
+  document.querySelectorAll(".cite").forEach((chip) => {
+    chip.classList.toggle("lit", index !== null && chip.dataset.index === String(index));
+  });
 }
 
 function focusSource(index) {
-  const li = document.querySelector(`.sources li[data-index="${index}"]`);
-  if (li) li.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  document.querySelectorAll(".cite").forEach((c) => c.classList.remove("active"));
-  const chip = Array.from(document.querySelectorAll(".cite"))
-    .find((c) => c.textContent === String(index));
-  if (chip) chip.classList.add("active");
+  lightChips(index);
+  lightSources(index);
 }
 
-function focusCitation(index) {
-  document.querySelectorAll(".sources li").forEach((li) => li.classList.remove("active"));
-  const li = document.querySelector(`.sources li[data-index="${index}"]`);
-  if (li) {
-    li.classList.add("active");
-    li.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
-}
+/* ── states ─────────────────────────────────────────────────────────────── */
 
-function setStatus(message, isError) {
+function setStatus(message, tone) {
   const node = $("status");
   if (!message) {
     node.hidden = true;
     return;
   }
   node.hidden = false;
-  node.className = isError ? "status err" : "status";
+  node.className = tone === "bad" ? "alert alert-bad" : "alert";
   node.textContent = message;
+}
+
+function reset() {
+  $("results").hidden = true;
+  $("answer-wrap").hidden = true;
+  $("sources-panel").hidden = true;
+  $("rail").hidden = true;
+  $("claims-block").hidden = true;
+  $("audit").hidden = true;
+  $("dangling").hidden = true;
+  setStatus(null);
 }
 
 async function ask() {
   const question = $("question").value.trim();
   if (!question) {
-    setStatus("Enter a question first.", true);
+    setStatus("Ask something first — the gateway answers from retrieved passages, not memory.", "bad");
+    $("question").focus();
     return;
   }
 
   const button = $("go");
   button.disabled = true;
-  setStatus("Retrieving and generating…");
-  $("answer-wrap").hidden = true;
+  button.textContent = "Asking";
+  reset();
+  setStatus("Retrieving passages, then checking every claim against them.");
 
   try {
     const res = await fetch("/api/ask", {
@@ -211,49 +293,69 @@ async function ask() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ question, top_k: Number($("topk").value) || 5 }),
     });
+
     const data = await res.json();
 
     if (!res.ok) {
-      // Surface the provider-level reason. A bare "request failed" makes a
+      // Surface the per-provider reason. A bare "request failed" makes a
       // misconfiguration indistinguishable from a model failure.
       const detail = data.providers
-        ? Object.entries(data.providers).map(([k, v]) => `${k}: ${v}`).join("; ")
-        : data.detail || data.error;
-      throw new Error(`${res.status} — ${detail}`);
+        ? Object.entries(data.providers).map(([name, why]) => `${name}: ${why}`).join(" · ")
+        : data.detail || data.error || "unknown error";
+      setStatus(`${res.status} — ${detail}`, "bad");
+      return;
     }
 
+    $("results").hidden = false;
     $("answer-wrap").hidden = false;
+    $("sources-panel").hidden = false;
+    $("rail").hidden = false;
+
     renderAnswer(data);
     renderSources(data);
     renderUsage(data);
-    renderClaims(data);
     renderAudit(data);
-    setStatus("");
+    renderClaims(data);
+    setStatus(null);
+
+    if (!reducedMotion()) {
+      const answer = $("answer-wrap");
+      answer.classList.add("settle");
+      answer.addEventListener("animationend", () => answer.classList.remove("settle"), { once: true });
+    }
   } catch (err) {
-    setStatus(err.message, true);
+    setStatus(`Could not reach the service — ${err.message}`, "bad");
   } finally {
     button.disabled = false;
+    button.textContent = "Ask";
   }
 }
 
+/* ── wiring ─────────────────────────────────────────────────────────────── */
+
 function init() {
-  const examples = $("examples");
+  const list = $("examples");
   for (const text of EXAMPLES) {
-    const b = el("button", null, text.length > 34 ? text.slice(0, 32) + "…" : text);
-    b.title = text;
-    b.addEventListener("click", () => {
+    const button = el("button", null, text);
+    button.type = "button";
+    button.addEventListener("click", () => {
       $("question").value = text;
       $("question").focus();
     });
-    examples.appendChild(b);
+    list.appendChild(button);
   }
 
   $("go").addEventListener("click", ask);
-  $("question").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask();
+
+  $("question").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      ask();
+    }
   });
+
   refreshHealth();
-  setInterval(refreshHealth, 15000);
+  setInterval(refreshHealth, 20000);
 }
 
 document.addEventListener("DOMContentLoaded", init);

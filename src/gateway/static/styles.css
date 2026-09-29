@@ -1,138 +1,581 @@
+/* Gateway — a calm product surface for a tool whose job is to be trusted with numbers.
+
+   The design brief: engineers are deciding whether a retrieval result is real. So the
+   interface privileges evidence over decoration. Anything that could be mistaken for a
+   measurement must look like a measurement, and anything that is decoration is
+   removed rather than softened.
+
+   Rules held throughout:
+   - One elevation level. The composer is the only raised surface; everything else is
+     flat with a hairline. Two shadow styles at once is how a page stops having
+     hierarchy.
+   - Numerals are tabular everywhere they are compared. Proportional digits make a
+     column of latencies look like it means something when it does not.
+   - Exactly one authored motion: the answer arriving and its sources lighting up in
+     sequence. It exists because it is the product thesis — an answer traced back to
+     evidence — and it is the only place motion appears.
+*/
+
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel-2: #1d212a;
-  --line: #2a2f3a;
-  --text: #e6e9ef;
-  --muted: #9aa3b2;
-  --accent: #6ea8fe;
-  --ok: #4ade80;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --radius: 10px;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  /* Canvas and surfaces. A cool near-white, not cream: the tool is neutral and the
+     warm paper treatment reads as a reading app rather than an instrument. */
+  --canvas: #eef0f4;
+  --surface: #ffffff;
+  --surface-sunk: #f6f7f9;
+  --surface-hover: #f1f3f7;
+
+  /* Ink. --muted is tinted from the ink hue rather than a flat gray, and holds
+     4.5:1 on both surface and canvas. */
+  --ink: #14181f;
+  --ink-soft: #3d4654;
+  --muted: #5c6675;
+  --faint: #98a1b0;
+
+  /* Rules. Two weights only: a hairline for structure, a rule for emphasis. */
+  --rule: #e3e7ed;
+  --rule-strong: #cfd5de;
+
+  /* One accent, reserved for things you can act on or click. */
+  --accent: #3d4eac;
+  --accent-soft: #eef0fb;
+  --accent-ink: #26307a;
+
+  /* Status. Kept off the accent hue so a grounded answer and a citation never look
+     like the same kind of thing. */
+  --good: #0e6f5c;
+  --good-soft: #e7f4f0;
+  --warn: #9a5b09;
+  --warn-soft: #fdf3e2;
+  --bad: #a82b1e;
+  --bad-soft: #fbecea;
+
+  --radius: 14px;
+  --radius-sm: 8px;
+  --radius-pill: 999px;
+
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  /* Exponential ease-out, the only curve in the file. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --fast: 140ms;
+  --slow: 460ms;
+
+  /* The composer's shadow, declared once and used once. */
+  --lift: 0 1px 2px rgba(20, 24, 31, 0.04), 0 12px 28px -12px rgba(20, 24, 31, 0.14);
 }
 
-* { box-sizing: border-box; }
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+/* `hidden` is presentational and any `display` declaration overrides it. Since the
+   layout below sets display on everything it hides, the attribute has to win
+   explicitly or panels appear before a question is ever asked. */
+[hidden] { display: none !important; }
+
+/* Browser surfaces ship with the design or they read as assembled. These are the
+   defaults no design system covers, and they are the cheapest signal of craft. */
+::selection { background: var(--accent-soft); color: var(--accent-ink); }
+
+:root { caret-color: var(--accent); accent-color: var(--accent); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+* { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--radius-pill);
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--faint); }
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--canvas);
+  color: var(--ink);
+  font: 400 15px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-h1 { font-size: 16px; margin: 0; font-weight: 600; }
-h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-h3.sub { font-size: 12px; margin: 20px 0 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-
-.bar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+/* Every number that gets compared to another number uses the same digits. */
+kbd, code, .mono, .figures dd, .score, .cite, .ledger-id {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
 }
-.brand { display: flex; align-items: center; gap: 10px; }
-.meta { color: var(--muted); font-size: 13px; font-family: var(--mono); }
 
-.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
-.dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(74,222,128,.15); }
-.dot.bad { background: var(--bad); box-shadow: 0 0 0 3px rgba(248,113,113,.15); }
+h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 600; }
+p { margin: 0; }
 
-main { max-width: 1180px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
-.split { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; align-items: start; }
-@media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
-
-.panel {
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 16px;
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  z-index: 10;
 }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; }
+.skip:focus { left: 16px; top: 16px; }
+
+/* ── masthead ─────────────────────────────────────────────────────────── */
+
+.masthead {
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+}
+.masthead-in {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 20px 28px;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.masthead h1 {
+  font-size: 17px;
+  letter-spacing: -0.022em;
+}
+.masthead-sub {
+  color: var(--muted);
+  font-size: 14px;
+  flex: 1;
+}
+
+.statuspill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  padding: 4px 11px 4px 9px;
+  max-width: 100%;
+  min-width: 0;
+}
+.statuspill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex-shrink: 0;
+}
+.statuspill[data-state="ok"] { color: var(--good); border-color: #cfe7e0; background: var(--good-soft); }
+.statuspill[data-state="ok"] .statuspill-dot { background: var(--good); }
+.statuspill[data-state="down"] { color: var(--bad); border-color: #f0d6d2; background: var(--bad-soft); }
+.statuspill[data-state="down"] .statuspill-dot { background: var(--bad); }
+
+/* ── layout ───────────────────────────────────────────────────────────── */
+
+main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 28px 72px;
+  display: grid;
+  gap: 28px;
+  align-content: start;
+}
+
+/* One reading column and one instrument rail. The answer and the evidence are read in
+   sequence; the numbers are consulted while reading them, so the rail stays in view. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 28px;
+  align-items: start;
+}
+.narrative { display: grid; gap: 28px; min-width: 0; }
+
+@media (max-width: 900px) {
+  .columns { grid-template-columns: 1fr; }
+  /* The rail stops being sticky but keeps its DOM position, which is after the
+     narrative. Hoisting it above the answer with a negative order made a phone user
+     scroll past two panels of metadata to reach the thing they asked for. */
+  .rail { position: static; }
+}
+
+@media (max-width: 560px) {
+  /* The status string is longer than a phone. Let the masthead wrap and the pill
+     flow onto its own lines rather than overflow the viewport sideways. */
+  .masthead-in { flex-wrap: wrap; row-gap: 10px; padding: 16px 18px; }
+  .masthead-sub { flex: 1 1 100%; order: 3; }
+  .statuspill { flex: 1 1 100%; order: 4; line-height: 1.7; }
+}
+
+/* ── composer: the single elevated surface ────────────────────────────── */
+
+.compose {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--lift);
+  padding: 20px;
+}
 
 .field { display: block; }
-.label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .06em; }
-
-textarea, input {
-  width: 100%; background: var(--panel-2); color: var(--text);
-  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
-  font: inherit; resize: vertical;
+.field-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
 }
-textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 
-.controls { display: flex; align-items: flex-end; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
-.k { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
-.k input { width: 72px; }
-
-.examples { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
-.examples button {
-  background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
-  border-radius: 999px; padding: 5px 11px; font-size: 12px; cursor: pointer;
+textarea, input[type="number"] {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+  width: 100%;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
-.examples button:hover { color: var(--text); border-color: var(--accent); }
-
-button.primary {
-  background: var(--accent); color: #08111f; border: 0; border-radius: 8px;
-  padding: 10px 22px; font-weight: 600; font-size: 14px; cursor: pointer;
+textarea {
+  resize: vertical;
+  min-height: 82px;
+  line-height: 1.55;
 }
-button.primary:disabled { opacity: .5; cursor: not-allowed; }
-button.primary:hover:not(:disabled) { filter: brightness(1.08); }
-
-.status { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); font-size: 13px; }
-.status.err { border-color: var(--bad); color: #fecaca; }
-.status code { font-family: var(--mono); font-size: 12px; }
-
-.answer-wrap { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
-.answer-head { display: flex; align-items: center; gap: 10px; }
-.answer-head h2 { margin: 0; }
-.answer { margin-top: 10px; font-size: 15.5px; }
-.answer p { margin: 0 0 10px; }
-
-.cite {
-  display: inline-block; min-width: 15px; text-align: center;
-  background: var(--accent); color: #08111f; border-radius: 4px;
-  font-size: 11px; font-weight: 700; padding: 0 4px; margin: 0 2px;
-  cursor: pointer; vertical-align: baseline; line-height: 1;
-  margin-left: 3px; position: relative; top: -1px;
+textarea::placeholder { color: var(--faint); }
+textarea:hover, input[type="number"]:hover { border-color: var(--rule-strong); }
+textarea:focus, input[type="number"]:focus {
+  outline: none;
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.cite.dangling { background: var(--bad); }
-.cite.active { outline: 2px solid var(--warn); }
 
-.badge {
-  font-size: 11px; padding: 2px 8px; border-radius: 999px;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+.compose-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 16px;
+}
+.passages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+.passages input { width: 68px; }
+
+.compose-spacer { flex: 1; }
+
+/* Suggestions get their own row. Sharing a row with the button meant the chips
+   wrapped unpredictably as soon as one ran long. */
+.try {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.try-label {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-bottom: 9px;
+}
+.try-list { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.try-list button {
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease),
+              background var(--fast) var(--ease);
+}
+.try-list button:hover {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-color: #c9cff2;
+}
+
+.ask {
+  font: inherit;
+  font-weight: 550;
+  font-size: 14.5px;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 10px 26px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: filter var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.ask:hover:not(:disabled) { filter: brightness(1.08); }
+.ask:active:not(:disabled) { transform: translateY(1px); }
+.ask:disabled { background: var(--rule-strong); cursor: progress; }
+
+.hint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--faint);
+}
+kbd {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 5px;
+  margin-right: 2px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+/* ── the answer: type carries it, not a container ─────────────────────── */
+
+.answer { max-width: 66ch; }
+
+.answer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 20px;
+}
+
+.section-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tag {
   font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
 }
-.badge.warn { color: var(--warn); border-color: var(--warn); }
+.tag-demo { color: var(--warn); background: var(--warn-soft); }
+.tag-cited { color: var(--good); background: var(--good-soft); }
 
-.dangling { color: var(--bad); font-size: 13px; }
-
-.sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 460px; overflow-y: auto; }
-.sources li {
-  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--line);
-  border-radius: 8px; padding: 10px 12px; cursor: pointer;
+.prose {
+  font-size: 17px;
+  line-height: 1.68;
+  letter-spacing: -0.006em;
+  color: var(--ink);
 }
-.sources li.cited { border-left-color: var(--ok); }
-.sources li.active { outline: 2px solid var(--warn); }
-.sources .s-head { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); font-family: var(--mono); }
-.sources .s-doc { color: var(--accent); overflow-wrap: anywhere; }
-.sources .s-text { margin-top: 6px; font-size: 13.5px; color: var(--text); }
-.sources .score { color: var(--warn); }
 
-.usage { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 13px; }
-.usage dt { color: var(--muted); }
-.usage dd { margin: 0; font-family: var(--mono); text-align: right; }
+/* A citation is a link into the evidence, so it is drawn as one: same colour as the
+   accent, underline offset, and a real focus ring. */
+.cite {
+  display: inline-block;
+  min-width: 16px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 0 1px 0 3px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 0 4px;
+  cursor: pointer;
+  vertical-align: 1px;
+  text-underline-offset: 2px;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.cite:hover { background: var(--accent); color: #fff; }
+.cite.lit { background: var(--accent); color: #fff; }
+.cite.broken {
+  color: var(--bad);
+  background: var(--bad-soft);
+  text-decoration: underline wavy var(--bad);
+  text-underline-offset: 3px;
+}
 
-.claims { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
-.claims li { color: var(--muted); padding-left: 10px; border-left: 2px solid var(--line); }
-.claims li.uncited { border-left-color: var(--warn); }
+.alert {
+  margin-top: 18px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+}
+.alert-bad {
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-color: #f0d6d2;
+}
+.alert code { font-size: 12.5px; }
 
 .audit {
-  display: flex; align-items: center; gap: 10px; margin-top: 12px;
-  padding: 9px 12px; border-radius: 8px; font-size: 13px;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 10px 13px;
+  font-size: 13.5px;
+  border-radius: var(--radius-sm);
+  background: var(--good-soft);
+  border: 1px solid #cfe7e0;
+  color: #0b5748;
 }
-.audit.warn { border-color: var(--warn); color: #fde68a; }
-.audit.bad { border-color: var(--bad); color: #fecaca; }
-.audit-label {
-  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
-  color: var(--muted); flex-shrink: 0;
+.audit[data-tone="warn"] { background: var(--warn-soft); border-color: #f0dfbe; color: #7c4907; }
+.audit[data-tone="bad"] { background: var(--bad-soft); border-color: #f0d6d2; color: var(--bad); }
+.audit-tag {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  flex-shrink: 0;
 }
-.audit.warn .audit-label, .audit.bad .audit-label { color: inherit; }
+
+.claims { padding-top: 4px; }
+.claims ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.claims li {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+  padding: 8px 0 8px 14px;
+  border-left: 2px solid var(--rule);
+}
+.claims li.flagged { border-left-color: var(--warn); color: var(--ink-soft); }
+
+/* ── sources: a ledger, not a card stack ───────────────────────────────── */
+
+.rail { position: sticky; top: 24px; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.panel-note { font-size: 12.5px; color: var(--faint); }
+.section-gap { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--rule); }
+
+.sources { list-style: none; margin: 0; padding: 0; }
+.sources li {
+  padding: 14px 0;
+  border-top: 1px solid var(--rule);
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+  scroll-margin: 24px;
+}
+.sources li:first-child { border-top: 0; }
+.sources li:hover { background: var(--surface-hover); }
+/* Cited rows carry a weight of type rather than a coloured bar. */
+.sources li.used .ledger-id { color: var(--ink); font-weight: 600; }
+.sources li.lit { background: var(--accent-soft); }
+
+.ledger-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 5px;
+}
+.ledger-id {
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.ledger-id::before {
+  content: "[" attr(data-n) "] ";
+  color: var(--faint);
+}
+.score { font-size: 12.5px; color: var(--ink-soft); flex-shrink: 0; }
+.ledger-text {
+  font-size: 14px;
+  line-height: 1.62;
+  color: var(--ink-soft);
+  max-width: 72ch;
+}
+
+.figures {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 9px 16px;
+  margin: 14px 0 0;
+  font-size: 13.5px;
+}
+.figures dt { color: var(--muted); }
+.figures dd {
+  margin: 0;
+  text-align: right;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+/* ── empty states ─────────────────────────────────────────────────────── */
+
+.empty {
+  padding: 22px 0 6px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 46ch;
+}
+.empty strong { color: var(--ink-soft); font-weight: 550; }
+
+/* ── the one authored motion ──────────────────────────────────────────── */
+
+/* An answer arriving is the only moment this interface moves. The sources rise into
+   place in the order the answer cites them, so the trace from claim to evidence is
+   legible as motion rather than requiring a click. Exponential ease-out, from an
+   already-visible default, so nothing depends on the animation to be readable. */
+@keyframes settle {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.settle { animation: settle var(--slow) var(--ease) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── footer ───────────────────────────────────────────────────────────── */
+
+.foot {
+  border-top: 1px solid var(--rule);
+  background: var(--surface);
+}
+.foot p {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 22px 28px 40px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}

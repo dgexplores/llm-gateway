@@ -136,7 +136,7 @@ def test_index_page_is_served(client: TestClient) -> None:
     res = client.get("/")
 
     assert res.status_code == 200
-    assert "LLM Gateway" in res.text
+    assert "Gateway" in res.text
 
 
 def test_static_assets_are_served(client: TestClient) -> None:
