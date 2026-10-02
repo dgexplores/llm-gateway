@@ -131,8 +131,8 @@ same list as the things it does.
   implemented, unit-tested, and **never wired into the client**; a unit test of a class
   cannot tell you nothing calls it.
 - Benchmarked **9 retrieval configurations** including dense retrieval with a local
-  embedding model. Dense scores 0.655 nDCG@10 against BM25's 0.869, and **both rank-fusion
-  variants lose** — BM25+TF-IDF 0.852, BM25+dense 0.795 — because equal-weight fusion
+  embedding model. Dense scores 0.665 nDCG@10 against BM25's 0.822, and **both rank-fusion
+  variants lose** — BM25+TF-IDF 0.784, BM25+dense 0.741 — because equal-weight fusion
   averages in a weaker member rather than using it to break ties. Chunk size turned out to
   be worth a third of dense's accuracy (0.465 at 1,200c vs 0.655 at 250c), so the tuned
   number is the one reported.
@@ -152,10 +152,11 @@ same list as the things it does.
 
 ### Not claimed
 
-- **No multi-hop reasoning results.** The 12 multi-document questions need two documents
-  retrieved, but 11 of 12 are answerable from one, so they are labelled `multi-doc` and
-  the difficulty gap (0.891 → 0.777) is reported as a retrieval finding, not a reasoning
-  one.
+- **Multi-hop questions, but not multi-hop reasoning.** 14 questions each need two
+  documents retrieved, enforced by the builder rather than assumed: neither document alone
+  reaches the support threshold. They score 0.570 against single-hop's 0.891, a 0.32 gap
+  that a difficulty label is supposed to reveal. None asks the reader to chain an inference
+  across the two documents, so this measures retrieval difficulty, not reasoning.
 - **Dense retrieval was measured, and lost.** With a local `all-MiniLM-L6-v2` it scores
   0.655 nDCG@10 against BM25's 0.869, and fusing it in scores 0.795. Chunk size was
   worth a third of dense's accuracy (0.465 at 1,200c vs 0.655 at 250c), so the tuned

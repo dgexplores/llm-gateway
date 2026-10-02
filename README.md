@@ -13,7 +13,7 @@ and they are **not** equivalent to it:
 
 | Adapter | Status | The catch |
 |---|---|---|
-| `gateway.rag.langchain.LangChainRetriever` | **measured** in the ablation with a local `all-MiniLM-L6-v2`, no API key | Loses to BM25 on this corpus (0.655 vs 0.869 nDCG@10, tuned). That is the expected result for documentation queries built from exact identifiers, and the reasoning is in `docs/RESULTS.md`. |
+| `gateway.rag.langchain.LangChainRetriever` | **measured** in the ablation with a local `all-MiniLM-L6-v2`, no API key | Loses to BM25 on this corpus (0.665 vs 0.822 nDCG@10, tuned). That is the expected result for documentation queries built from exact identifiers, and the reasoning is in `docs/RESULTS.md`. |
 | `gateway.rag.lightrag_retriever.LightRAGRetriever` | parsing and async bridge tested against a fake | LightRAG returns a **synthesized context string**, not scored chunks with document ids, so per-claim citation cannot work. Its chunks carry an empty `doc_id` and `metadata={"synthesized": True}` rather than a fabricated one. No faithful end-to-end run: LightRAG extracts entities with an LLM, and a stub produces zero entities. |
 
 ```bash
@@ -21,10 +21,11 @@ uv sync --extra rag --extra langchain   # semantic retrieval (local embedding mo
 uv sync --extra lightrag   # knowledge-graph retrieval (heavy; needs a real model)
 ```
 
-> **Results published.** BM25 reaches **nDCG@10 0.869** and **recall@10 0.905** at
-> 2.7 ms p95 over 1,448 chunks, on a corpus pinned by commit, against a no-retrieval
-> control at 0.000. 63 questions, *mechanically verified* — a verifier proven to reject
-> fabricated answers checked each one against the document it cites.
+> **Results published.** BM25 reaches **nDCG@10 0.822** and **recall@10 0.854** at
+> 2.4 ms p95 over 1,448 chunks, on a corpus pinned by commit, against a no-retrieval
+> control at 0.000. 65 questions, *mechanically verified* — a verifier proven to reject
+> fabricated answers checked each one against the document it cites. Difficulty is measured
+> rather than assumed: multi-hop questions score **0.570** against single-hop's **0.891**.
 >
 > Both a limitation and its fix are published in [docs/RESULTS.md](docs/RESULTS.md). The
 > gateway could not detect a question its corpus cannot answer — 0% abstention, with every

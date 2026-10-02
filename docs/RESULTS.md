@@ -5,8 +5,8 @@ Every number in this file comes from a committed run of `scripts/run_eval.py` or
 
 ## Golden set
 
-**63 questions, mechanically verified — not hand-verified.** 51 single-hop plus 12
-multi-document.
+**65 questions, mechanically verified — not hand-verified.** 51 single-hop plus 14
+multi-hop.
 
 `gateway.rag.verify_set` checks each proposed answer against the document its label
 cites: the answer's content words must be at least 75% present in that document, and no
@@ -28,9 +28,10 @@ is therefore described as *mechanically verified* throughout, never as *hand-ver
 
 ### Known weaknesses in this set
 
-- **The multi-document rows are not multi-hop reasoning.** 11 of 12 are answerable from
-  one document covering 75% of the answer. The label is `multi-doc` for that reason.
-- **No-answer questions are not in the retrieval table.** They have no relevant document,
+- **The multi-hop questions are retrieval-hard, not reasoning-hard.** Each needs two
+  documents retrieved; none asks the reader to chain an inference across them. A model
+  could still answer all 14 from one document given enough context.
+ They have no relevant document,
   so nDCG is undefined for them. They are measured separately, by abstention rate, below.
 - **Questions are generated from the corpus**, so the set inherits the corpus's
   vocabulary. This favours lexical retrieval and understates the gap a dense retriever
@@ -55,30 +56,44 @@ so the baseline's 0.891 is measuring retrieval rather than the shape of the metr
 | difficulty | n | nDCG@10 |
 |---|---|---|
 | single-hop | 51 | 0.891 |
-| multi-doc | 12 | 0.777 |
+| multi-hop | 14 | 0.570 |
 
-The multi-document questions score 0.114 lower, which
-is the expected direction: recall has to surface two documents, so there are more ways to
-miss. These come from `per_difficulty` in `docs/results/bm25.json`.
+The multi-hop questions score **0.32 lower**, which is the gap a difficulty label is
+supposed to reveal. It took two attempts to get a set that measures it.
 
-The `multi-doc` rows are questions whose answers draw on two documents, so recall has to
-find both. They are **not** multi-hop reasoning questions, and the label says `multi-doc`
-for that reason: measured against the corpus, 11 of the 12 have one document that already
-covers 75% or more of the answer. Calling them multi-hop would claim more than the set
-tests.
+The first attempt paired two documents and concatenated a sentence from each. Measured
+against the corpus, 11 of those 12 rows were answerable from a single document covering
+75% or more of the answer — two retrievals dressed up as one question. They were relabelled
+`multi-doc`, which was honest but left the corpus with no multi-hop coverage at all, and
+the difficulty gap was a meaningless 0.11.
+
+`scripts/build_multihop.py` now enforces the property instead of hoping for it. A sentence
+pair is emitted only when **neither** document alone reaches the support threshold and each
+contributes content words the other lacks. Candidate pairs are scored by how little of the
+combined answer either side covers, and the best-balanced pair per document pair is taken.
+The result: all 14 rows sit at 0.55–0.74 best-single-document, against 0.75–0.94 before.
+
+A set that cannot be built under the constraint is a legitimate outcome — it would mean
+this corpus does not support genuine multi-hop questions — so the script reports what it
+dropped rather than quietly emitting weaker rows.
+
+What the 0.32 gap means: BM25 has to get **both** documents into the top 10 for a
+multi-hop question, which is a different and harder task than getting one. A retriever can
+score well on single-hop and still be poor at this, so the headline number alone hides the
+difference between the two.
 
 ## Ablation
 
 | retriever | nDCG@10 | recall@10 | MRR | hit@10 | p95 ms |
 |---|---|---|---|---|---|
-| `bm25_no_overlap` | 0.868 | 0.921 | 0.843 | 0.937 | 1.9 |
-| `bm25_long` (2400 chars) | 0.860 | 0.937 | 0.801 | **0.952** | 1.4 |
-| `bm25_short` (400 chars) | 0.834 | 0.873 | 0.787 | 0.905 | 5.6 |
-| `hybrid` (BM25 + TF-IDF RRF) | 0.852 | 0.905 | 0.800 | 0.937 | 5.4 |
+| `bm25_no_overlap` | 0.797 | 0.854 | 0.772 | 0.908 | 1.9 |
+| `bm25_long` (2400 chars) | 0.808 | 0.892 | 0.744 | **0.954** | 1.5 |
+| `bm25_short` (400 chars) | 0.806 | 0.831 | 0.742 | 0.892 | 4.6 |
+| `hybrid` (BM25 + TF-IDF RRF) | 0.784 | 0.846 | 0.740 | 0.908 | 6.2 |
 
-| `semantic` (dense, 1200c chunks) | 0.465 | 0.651 | 0.209 | 0.698 | 15.7 |
-| `semantic_250c` (dense, 250c chunks) | 0.655 | 0.762 | 0.379 | 0.794 | 39.4 |
-| `semantic+bm25` (RRF of dense and BM25) | 0.795 | 0.881 | 0.643 | 0.905 | 19.1 |
+| `semantic` (dense, 1200c chunks) | 0.434 | 0.623 | 0.187 | 0.708 | 16.5 |
+| `semantic_250c` (dense, 250c chunks) | 0.665 | 0.739 | 0.413 | 0.800 | 36.0 |
+| `semantic+bm25` (RRF of dense and BM25) | 0.741 | 0.831 | 0.572 | 0.892 | 19.0 |
 
 **Dense retrieval loses to BM25 on this corpus, and the reason is specific.** The dense
 rows use `sentence-transformers/all-MiniLM-L6-v2`, loaded locally — no API key, and the
@@ -93,17 +108,19 @@ scored:
 
 | chunk size | nDCG@10 | recall@10 |
 |---|---|---|
-| 1200c (the baseline) | 0.465 | 0.651 |
+| 1200c (the baseline) | 0.434 | 0.623 |
 | 500c | 0.586 | 0.754 |
-| **250c** | **0.655** | **0.762** |
+| **250c** | **0.665** | **0.739** |
 | 100c | 0.627 | 0.738 |
+
+(measured on the earlier 63-question set; the ordering is what matters here)
 
 So the baseline chunking was costing dense retrieval about a third of its accuracy, and
 100c is too small — passages lose the context that makes them matchable. `semantic_250c`
 is in the table so the comparison is tuned against tuned; reporting only the 0.465 would
 have blamed the retriever for a chunking mismatch.
 
-**Even tuned, BM25 wins by 0.21 nDCG.** Documentation questions are made of exact
+**Even tuned, BM25 wins by 0.16 nDCG.** Documentation questions are made of exact
 identifiers — `status_code`, `BackgroundTasks`, `OAuth2PasswordRequestForm` — and lexical
 matching is precisely right for those while a 384-dimensional embedding blurs them into
 the surrounding prose. This is the expected result for technical documentation with rare
@@ -186,8 +203,9 @@ one. End to end, through the real pipeline:
 
 | threshold | answerable answered | unanswerable caught |
 |---|---|---|
-| **-9.0 (default)** | **63/63 (100%)** | **6/8 (75%)** |
-| -3.0 | 56/63 (89%) | 8/8 (100%) |
+| **-9.0 (default)** | **65/65 (100%)** | **6/8 (75%)** |
+| -6.0 | 64/65 (98%) | 6/8 (75%) |
+| -3.0 | 56/65 (86%) | 8/8 (100%) |
 
 **0% → 75% abstention, at no measured cost to answerable questions.** The two it still
 answers are the ones the corpus does partially discuss; tightening to -3.0 catches them

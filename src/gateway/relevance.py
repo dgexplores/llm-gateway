@@ -29,13 +29,15 @@ DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 # real pipeline and over the best of k retrieved passages:
 #
 #   threshold   answerable answered   unanswerable caught
-#   -9.0        63/63  (100%)         6/8  (75%)
-#   -3.0        56/63  ( 89%)         8/8  (100%)
+#   -9.0        65/65  (100%)         6/8  (75%)
+#   -6.0        64/65  ( 98%)         6/8  (75%)
+#   -3.0        56/65  ( 86%)         8/8  (100%)
 #
-# -9.0 is the default because it costs nothing measured: it answers every question the
-# corpus can address while catching three quarters of the ones it cannot. -3.0 catches the
-# rest at the price of withholding one answer in nine, which is a defensible choice for a
-# tool whose thesis is knowing when it does not know, and not one to impose by default.
+# -9.0 is the default because it costs nothing measured: it answers every one of the 65
+# questions the corpus can address while catching three quarters of the eight it cannot.
+# -6.0 buys nothing and loses a question. -3.0 catches the remaining two at the price of
+# withholding one legitimate answer in seven, which is a defensible choice for a tool
+# whose thesis is knowing when it does not know, and not one to impose by default.
 #
 # An earlier estimate of this curve, taken by scoring only the top-ranked passage,
 # suggested -9.0 would withhold 7 of 63 answerable questions. It withholds none, because
