@@ -26,3 +26,7 @@ corpus/
 
 # Browser-automation screenshots from local UI checks
 .playwright-mcp/
+
+# Intermediate frames for the demo GIF. The GIF itself is committed; the frames are
+# ~7MB of PNGs that only exist to be assembled into it.
+docs/demo/frames/

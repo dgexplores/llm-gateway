@@ -206,6 +206,21 @@ Optional extras: `--extra rag` (embeddings, reranking, NLI), `--extra serve`
 (FastAPI), `--extra cache` (Redis), `--extra langchain` (vector-store retrieval),
 `--extra lightrag` (knowledge-graph retrieval).
 
+## What it looks like
+
+![The gateway answering a question, with retrieved passages and citations](docs/demo/gateway-demo.gif)
+
+A recorded session against the containerised app, not a mock-up — `scripts/record_demo.py`
+drives a real browser against a real server.
+
+The second half of it is the interesting half. Asked *"Which employee invented the
+pneumatic stapler?"* the gateway answers with something about translation tags in FastAPI
+docs, and the strip underneath says **GROUNDED — 3 of 3 claims grounded in the sources**. It
+is not lying: every sentence really does appear in the passages it retrieved. The
+verification is doing its job and the answer is still nonsense, because nothing checked
+whether the passages address the question. That is the limitation the relevance gate
+exists to close, and it is why "grounded" is the word on the button and not "correct".
+
 ## Running it in a container
 
 ```bash

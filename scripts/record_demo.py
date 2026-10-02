@@ -10,9 +10,12 @@ So this drives a real browser against the real server — no stubbed responses, 
 pre-baked frames — and captures the viewport repeatedly while the page settles, then
 assembles the frames into a GIF with ffmpeg.
 
-The scenario deliberately includes a question the corpus cannot answer. The interesting
-moment in a tool like this is not the happy path, it is the moment it declines, so the
-recording would be dishonest if every frame were a success.
+The second scenario asks a question the corpus cannot answer, and the recording shows the
+gateway answering it anyway. That is not a bug in the script and not a staging accident:
+the relevance gate is off by default, so 0% of out-of-corpus questions are caught unless
+you ask for it. The interesting frame in a tool like this is the one where you find out
+what it actually does, so the demo shows that rather than implying a decline the default
+configuration never performs. `docs/RESULTS.md` has the measured 75% behind the opt-in.
 
 Requires playwright and ffmpeg. Screenshots land in docs/demo/frames/ and the result in
 docs/demo/gateway-demo.gif.
@@ -33,10 +36,10 @@ OUT = ROOT / "docs" / "demo" / "gateway-demo.gif"
 
 WIDTH, HEIGHT = 1280, 860
 
-# (question, note). The second question is out of corpus on purpose.
+# (question, label). The second is out of corpus on purpose, to show the default behaviour.
 SCENARIO: list[tuple[str, str]] = [
-    ("How do I add a query parameter to a path operation?", "answerable"),
-    ("Which employee invented the pneumatic stapler?", "out of corpus"),
+    ("How do I add a query parameter to a path operation?", "answered"),
+    ("Which employee invented the pneumatic stapler?", "answered-anyway"),
 ]
 
 
@@ -67,19 +70,31 @@ def main() -> None:
         print(f"driving {base}")
 
         page.goto(base, wait_until="networkidle")
+        # The health pill reports the real index, so waiting on it means the corpus is
+        # loaded rather than just that the socket is open.
+        page.wait_for_function(
+            "() => /bm25|hybrid|semantic/.test(document.body.innerText)", timeout=60_000
+        )
         capture(page, "idle", index := index + 1)
 
-        for question, kind in SCENARIO:
+        for question, label in SCENARIO:
             box = page.get_by_role("textbox").first
             box.click()
             box.fill(question)
 
-            capture(page, "typed", index := index + 1, settle_ms=350)
+            capture(page, "typed", index := index + 1, settle_ms=400)
 
-            # The provider quotes retrieved passages, so answers are not instant.
-            box.press("Enter")
-            page.wait_for_timeout(1200)
-            capture(page, f"{kind}-answered", index := index + 1, settle_ms=1400)
+            # Enter alone does not submit: the UI asks for Cmd/Ctrl+Enter, so clicking Ask
+            # is the honest path. Then wait for the answer to actually exist rather than
+            # sleeping and hoping -- a fixed wait recorded an empty panel as the answer.
+            page.locator("#go").click()
+            page.wait_for_selector("#answer-wrap:not([hidden])", timeout=60_000)
+            capture(page, label, index := index + 1, settle_ms=1200)
+
+            # The sources rail is the point of the tool, so show it.
+            page.mouse.wheel(0, 900)
+            capture(page, f"{label}-sources", index := index + 1, settle_ms=700)
+            page.mouse.wheel(0, -900)
 
         browser.close()
 
