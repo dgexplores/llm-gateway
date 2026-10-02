@@ -214,11 +214,22 @@ docker compose --profile redis up    # adds Redis for the response cache
 ```
 
 The image fetches the pinned corpus at start-up rather than baking 155 files into a
-layer, and runs as a non-root user. **Unverified:** Docker was not installed in the
-environment this was written in, so the image has never been built. The Dockerfile and
-`docker-compose.yml` are written to fail loudly rather than quietly serve an empty
-index — the entrypoint fetches the corpus before uvicorn starts, and the health check
-fails until the API answers.
+layer, and runs as a non-root user. **Verified** on Docker 29.5 (Colima, Ubuntu 24.04):
+healthy in about 15 seconds, 155 documents and 1,448 chunks, serving the UI and answering
+with real cited documents.
+
+Building it is what found four bugs, every one of which looked correct on the page and only
+appeared when the container actually started:
+
+- `CMD ["sh -c", ...]` is exec form, so it looked for a binary named `sh -c` — with a space.
+- The corpus volume was created root-owned while the app runs as uid 10001, so the fetch
+  failed with `Permission denied` on all 155 files.
+- `fastapi` and `uvicorn` were only in the `serve` extra, which the image never installed.
+- The venv was built at `/build/.venv` and copied to `/app/.venv`, so every console script
+  had a shebang pointing at a directory that does not exist in the runtime image.
+
+The image is 384MB and pulls no ML stack, because BM25 is pure Python — the heavy `rag`
+extra stays optional.
 
 ## What the numbers are worth
 

@@ -5,10 +5,10 @@
 # scripts/fetch_corpus.sh, so it is a volume rather than an image layer: 155 files
 # should not be baked into a build artifact, and the pin belongs in one place.
 #
-# Not verified: Docker is not installed in the environment this was written in, so
-# nothing below has been run. The Dockerfile is written to fail loudly rather than
-# silently serve an empty index — the entrypoint fetches the corpus before uvicorn
-# starts, and the health check fails until the API answers.
+# Verified on Docker 29.5 / Colima (Ubuntu 24.04 VM): builds, starts healthy, answers a
+# question with citations. Two bugs surfaced here and are fixed — the Dockerfile's CMD was
+# exec form with "sh -c" as a single argv entry, and the named volume below was created
+# root-owned, so the non-root gateway user could not write the corpus it had to fetch.
 
 services:
   gateway:
@@ -56,4 +56,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  # No privileged_init: the Dockerfile creates /app/corpus owned by the app user, and Docker
+  # seeds a fresh volume from that directory with matching ownership. Pre-chowning the
+  # volume by hand would make `docker compose up` work here and fail for everyone else.
   corpus:
