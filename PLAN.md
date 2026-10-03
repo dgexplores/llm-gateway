@@ -131,8 +131,8 @@ same list as the things it does.
   implemented, unit-tested, and **never wired into the client**; a unit test of a class
   cannot tell you nothing calls it.
 - Benchmarked **9 retrieval configurations** including dense retrieval with a local
-  embedding model. Dense scores 0.665 nDCG@10 against BM25's 0.822, and **both rank-fusion
-  variants lose** — BM25+TF-IDF 0.784, BM25+dense 0.741 — because equal-weight fusion
+  embedding model. Dense scores 0.784 nDCG@10 against BM25's 0.852, and **both rank-fusion
+  variants lose** — BM25+TF-IDF 0.796, BM25+dense 0.814 — because equal-weight fusion
   averages in a weaker member rather than using it to break ties. Chunk size turned out to
   be worth a third of dense's accuracy (0.465 at 1,200c vs 0.655 at 250c), so the tuned
   number is the one reported.
@@ -152,6 +152,11 @@ same list as the things it does.
 
 ### Not claimed
 
+- **The single-hop questions were authored having read their answers.** They replaced one
+  template repeated 51 times, which had been suppressing dense retrieval (0.434 → 0.745).
+  But the rewrite shares 39% of its content words with the answer sentence versus 17%
+  before, so the absolute scores are upper bounds and only the retriever ordering is
+  trustworthy. A blind authoring pass from document titles would settle it.
 - **Multi-hop questions, but not multi-hop reasoning.** 14 questions each need two
   documents retrieved, enforced by the builder rather than assumed: neither document alone
   reaches the support threshold. They score 0.570 against single-hop's 0.891, a 0.32 gap

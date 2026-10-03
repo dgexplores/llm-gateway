@@ -8,6 +8,10 @@ Every number in this file comes from a committed run of `scripts/run_eval.py` or
 **65 questions, mechanically verified — not hand-verified.** 51 single-hop plus 14
 multi-hop.
 
+The single-hop questions were rewritten after the first run of this table, and the rewrite
+changed the numbers. Both versions are reported below, because the honest reading is that
+**they are not comparable** — see [The templated question set](#the-templated-question-set).
+
 `gateway.rag.verify_set` checks each proposed answer against the document its label
 cites: the answer's content words must be at least 75% present in that document, and no
 two answers may be near-duplicates. 63 of 63 passed. The multi-document answers are
@@ -86,14 +90,14 @@ difference between the two.
 
 | retriever | nDCG@10 | recall@10 | MRR | hit@10 | p95 ms |
 |---|---|---|---|---|---|
-| `bm25_no_overlap` | 0.797 | 0.854 | 0.772 | 0.908 | 1.9 |
-| `bm25_long` (2400 chars) | 0.808 | 0.892 | 0.744 | **0.954** | 1.5 |
-| `bm25_short` (400 chars) | 0.806 | 0.831 | 0.742 | 0.892 | 4.6 |
-| `hybrid` (BM25 + TF-IDF RRF) | 0.784 | 0.846 | 0.740 | 0.908 | 6.2 |
+| `bm25_no_overlap` | 0.815 | 0.854 | 0.779 | 0.908 | 18.8 |
+| `bm25_long` (2400 chars) | 0.845 | 0.892 | 0.774 | **0.954** | 9.2 |
+| `bm25_short` (400 chars) | 0.838 | 0.877 | 0.762 | 0.938 | 40.9 |
+| `hybrid` (BM25 + TF-IDF RRF) | 0.796 | 0.831 | 0.718 | 0.892 | 20.1 |
 
-| `semantic` (dense, 1200c chunks) | 0.434 | 0.623 | 0.187 | 0.708 | 16.5 |
-| `semantic_250c` (dense, 250c chunks) | 0.665 | 0.739 | 0.413 | 0.800 | 36.0 |
-| `semantic+bm25` (RRF of dense and BM25) | 0.741 | 0.831 | 0.572 | 0.892 | 19.0 |
+| `semantic` (dense, 1200c chunks) | 0.745 | 0.854 | 0.364 | 0.938 | 123.5 |
+| `semantic_250c` (dense, 250c chunks) | 0.784 | 0.846 | 0.519 | 0.908 | 227.4 |
+| `semantic+bm25` (RRF of dense and BM25) | 0.814 | 0.892 | 0.585 | 0.954 | 72.2 |
 
 **Dense retrieval loses to BM25 on this corpus, and the reason is specific.** The dense
 rows use `sentence-transformers/all-MiniLM-L6-v2`, loaded locally — no API key, and the
@@ -120,7 +124,9 @@ So the baseline chunking was costing dense retrieval about a third of its accura
 is in the table so the comparison is tuned against tuned; reporting only the 0.465 would
 have blamed the retriever for a chunking mismatch.
 
-**Even tuned, BM25 wins by 0.16 nDCG.** Documentation questions are made of exact
+**Even tuned, BM25 wins, but by 0.068 rather than the 0.157 the templated set suggested.**
+The reason is in the next section, and it is a correction to a claim this file used to
+make. Documentation questions are made of exact
 identifiers — `status_code`, `BackgroundTasks`, `OAuth2PasswordRequestForm` — and lexical
 matching is precisely right for those while a 384-dimensional embedding blurs them into
 the surrounding prose. This is the expected result for technical documentation with rare
