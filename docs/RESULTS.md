@@ -402,10 +402,26 @@ passage first. A semantic-quality number from it would be noise with a decimal p
 
 LightRAG returns a synthesized context string rather than scored chunks, so it cannot be
 scored per document at all, and it is excluded from the harness for that reason rather
-than included with a caveat.
+than included with a caveat. A faithful end-to-end run was attempted and stopped, which
+is worth recording because "needs an LLM" is vague about where the floor is:
 
-Producing a comparable semantic number needs a real embedding model, which needs a key.
-That is a deliberate omission, not an oversight.
+- Wiring works: LightRAG 1.5.7 against local Ollama (`qwen2.5:0.5b` + `nomic-embed-text`),
+  5 documents inserted and queried with no crash and no refusal — the query path returns
+  chunk-backed context.
+- Extraction does not: the 0.5b model echoes the extraction prompt's placeholders
+  (`<target_entity>`, `<relationship_description>`) instead of extracting anything, so the
+  graph holds 4 `doc-<hash>` chunk stubs and zero real entities.
+- Two probe-config bugs burned time first: LightRAG 1.5.7 requires an explicit
+  `await rag.initialize_storages()`, and its `ollama_embed` ships pinned to dim 1024
+  while `nomic-embed-text` emits 768 — double-wrapping it produced "total elements
+  (1536) cannot be evenly divided by expected dimension (1024)".
+- 5 documents took ~1,000 s on CPU, so the full 155 would take the better part of a day
+  on this machine, with a model already shown to extract nothing.
+
+The floor is therefore concrete: end-to-end LightRAG needs a model capable of following
+the extraction prompt, which here means a GPU or someone else's computer. The probe script
+was deliberately not committed — a 5-doc smoke test that says nothing about quality
+would invite exactly the misreading this file exists to prevent.
 
 ## Reproducing
 
