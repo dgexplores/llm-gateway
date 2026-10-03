@@ -28,16 +28,22 @@ DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 # Chosen from the measured trade-off curve, not picked by feel. End to end, through the
 # real pipeline and over the best of k retrieved passages:
 #
+# Measured against the 65 answerable and 8 unanswerable questions, on the natural-language
+# question set rather than the earlier templated one:
+#
 #   threshold   answerable answered   unanswerable caught
 #   -9.0        65/65  (100%)         6/8  (75%)
-#   -6.0        64/65  ( 98%)         6/8  (75%)
-#   -3.0        56/65  ( 86%)         8/8  (100%)
+#   -6.0        63/65  ( 97%)         6/8  (75%)
+#   -3.0        59/65  ( 91%)         8/8  (100%)
 #
 # -9.0 is the default because it costs nothing measured: it answers every one of the 65
 # questions the corpus can address while catching three quarters of the eight it cannot.
-# -6.0 buys nothing and loses a question. -3.0 catches the remaining two at the price of
-# withholding one legitimate answer in seven, which is a defensible choice for a tool
-# whose thesis is knowing when it does not know, and not one to impose by default.
+# That row was re-measured after the question set was rewritten from one repeated template
+# into natural questions, and it did not move — which is the useful result, since a gate
+# tuned on one phrasing and then re-measured on another is the only kind of number here
+# worth trusting. -6.0 buys nothing and loses two questions. -3.0 catches the remaining two
+# at the price of withholding one legitimate answer in seven: defensible for a tool whose
+# thesis is knowing when it does not know, not something to impose by default.
 #
 # An earlier estimate of this curve, taken by scoring only the top-ranked passage,
 # suggested -9.0 would withhold 7 of 63 answerable questions. It withholds none, because

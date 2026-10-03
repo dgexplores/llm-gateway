@@ -210,8 +210,13 @@ one. End to end, through the real pipeline:
 | threshold | answerable answered | unanswerable caught |
 |---|---|---|
 | **-9.0 (default)** | **65/65 (100%)** | **6/8 (75%)** |
-| -6.0 | 64/65 (98%) | 6/8 (75%) |
-| -3.0 | 56/65 (86%) | 8/8 (100%) |
+| -6.0 | 63/65 (97%) | 6/8 (75%) |
+| -3.0 | 59/65 (91%) | 8/8 (100%) |
+
+The default row was re-measured after the single-hop questions were rewritten from one
+repeated template into natural language, and it did not move. That is the useful result: a
+gate tuned on one set of phrasings and then re-measured on a different one is the only kind
+of number in this table worth trusting.
 
 **0% → 75% abstention, at no measured cost to answerable questions.** The two it still
 answers are the ones the corpus does partially discuss; tightening to -3.0 catches them
