@@ -8,13 +8,14 @@ Every number in this file comes from a committed run of `scripts/run_eval.py` or
 **65 questions, mechanically verified — not hand-verified.** 51 single-hop plus 14
 multi-hop.
 
-The single-hop questions were rewritten after the first run of this table, and the rewrite
-changed the numbers. Both versions are reported below, because the honest reading is that
-**they are not comparable** — see [The templated question set](#the-templated-question-set).
+The single-hop questions were rewritten after the first run of this table, then five of
+the rewrites were reworded again to remove phrasing taken from their answers. Each stage
+changed the numbers. All three versions are reported below, because the honest reading is
+that **they are not comparable** — see [The templated question set](#the-templated-question-set).
 
 `gateway.rag.verify_set` checks each proposed answer against the document its label
 cites: the answer's content words must be at least 75% present in that document, and no
-two answers may be near-duplicates. 63 of 63 passed. The multi-document answers are
+two answers may be near-duplicates. 65 of 65 passed. The multi-document answers are
 composed of sentences pulled from the corpus by exact substring match, and
 `scripts/build_multihop.py` exits non-zero if a match is missing, so no answer in the
 set was written by hand.
@@ -22,7 +23,7 @@ set was written by hand.
 That number is only meaningful because the verifier was shown to reject. The control
 cases in `tests/test_verify_set.py` assert that a fabricated answer, an answer citing the
 wrong document, a label pointing at a missing document, an empty answer, and a
-near-duplicate pair are all rejected. Without those controls, "51 of 51" would be
+near-duplicate pair are all rejected. Without those controls, "65 of 65" would be
 consistent with a verifier that never rejects anything.
 
 What this establishes: the answers are supported by the documents they cite, and the
@@ -49,20 +50,20 @@ Corpus: 155 FastAPI documents, 1,448 chunks.
 
 | retriever | nDCG@10 | recall@10 | MRR | hit@10 | p95 ms | n |
 |---|---|---|---|---|---|---|
-| `none` (control) | 0.000 | 0.000 | 0.000 | 0.000 | 0.0 | 63 |
-| `bm25` (baseline) | **0.869** | 0.905 | 0.828 | 0.921 | 2.7 | 63 |
+| `none` (control) | 0.000 | 0.000 | 0.000 | 0.000 | 0.0 | 65 |
+| `bm25` (baseline) | **0.832** | 0.869 | 0.743 | 0.939 | 2.8 | 65 |
 
 The `none` row is the point of the table. A retriever that returns nothing scores zero,
-so the baseline's 0.891 is measuring retrieval rather than the shape of the metric.
+so the baseline's 0.832 is measuring retrieval rather than the shape of the metric.
 
 ### By difficulty
 
 | difficulty | n | nDCG@10 |
 |---|---|---|
-| single-hop | 51 | 0.891 |
+| single-hop | 51 | 0.904 |
 | multi-hop | 14 | 0.570 |
 
-The multi-hop questions score **0.32 lower**, which is the gap a difficulty label is
+The multi-hop questions score **0.33 lower**, which is the gap a difficulty label is
 supposed to reveal. It took two attempts to get a set that measures it.
 
 The first attempt paired two documents and concatenated a sentence from each. Measured
@@ -90,14 +91,14 @@ difference between the two.
 
 | retriever | nDCG@10 | recall@10 | MRR | hit@10 | p95 ms |
 |---|---|---|---|---|---|
-| `bm25_no_overlap` | 0.815 | 0.854 | 0.779 | 0.908 | 18.8 |
-| `bm25_long` (2400 chars) | 0.845 | 0.892 | 0.774 | **0.954** | 9.2 |
-| `bm25_short` (400 chars) | 0.838 | 0.877 | 0.762 | 0.938 | 40.9 |
-| `hybrid` (BM25 + TF-IDF RRF) | 0.796 | 0.831 | 0.718 | 0.892 | 20.1 |
+| `bm25_no_overlap` | 0.792 | 0.839 | 0.741 | 0.892 | 1.9 |
+| `bm25_long` (2400 chars) | 0.827 | 0.877 | 0.731 | 0.939 | 1.5 |
+| `bm25_short` (400 chars) | 0.823 | 0.862 | 0.729 | 0.923 | 4.7 |
+| `hybrid` (BM25 + TF-IDF RRF) | 0.762 | 0.815 | 0.663 | 0.877 | 5.5 |
 
-| `semantic` (dense, 1200c chunks) | 0.745 | 0.854 | 0.364 | 0.938 | 123.5 |
-| `semantic_250c` (dense, 250c chunks) | 0.784 | 0.846 | 0.519 | 0.908 | 227.4 |
-| `semantic+bm25` (RRF of dense and BM25) | 0.814 | 0.892 | 0.585 | 0.954 | 72.2 |
+| `semantic` (dense, 1200c chunks) | 0.739 | 0.854 | 0.384 | 0.939 | 17.6 |
+| `semantic_250c` (dense, 250c chunks) | 0.782 | 0.846 | 0.498 | 0.908 | 38.0 |
+| `semantic+bm25` (RRF of dense and BM25) | 0.811 | 0.892 | 0.584 | 0.954 | 19.3 |
 
 **Dense retrieval loses to BM25 on this corpus, and the reason is specific.** The dense
 rows use `sentence-transformers/all-MiniLM-L6-v2`, loaded locally — no API key, and the
@@ -124,7 +125,7 @@ So the baseline chunking was costing dense retrieval about a third of its accura
 is in the table so the comparison is tuned against tuned; reporting only the 0.465 would
 have blamed the retriever for a chunking mismatch.
 
-**Even tuned, BM25 wins, but by 0.068 rather than the 0.157 the templated set suggested.**
+**Even tuned, BM25 wins, but by 0.050 rather than the 0.157 the templated set suggested.**
 The reason is in the next section, and it is a correction to a claim this file used to
 make. Documentation questions are made of exact
 identifiers — `status_code`, `BackgroundTasks`, `OAuth2PasswordRequestForm` — and lexical
@@ -134,24 +135,26 @@ terms, and it is why a keyword index is the sensible default here rather than a
 conservative one.
 
 **Rank fusion hurts twice, and the second time is the informative one.** Fusing BM25 with
-TF-IDF scores 0.852 and BM25 with dense scores 0.795, both below BM25's 0.869. With
+TF-IDF scores 0.762 and BM25 with dense scores 0.811, both below BM25's 0.832. With
 equal weights, reciprocal-rank fusion averages in a weaker member's opinions instead of
 using it to break ties, so adding a retriever that is worse than the incumbent makes the
 result worse. Rank fusion is a way to combine *comparable* rankers. It paid off nowhere
 here, and the honest conclusion is that it is not worth its latency on this corpus.
 
-The latency column is the other cost: dense is 15x BM25's p95 and fusion of the two is
-7x, for worse accuracy.
+The latency column is the other cost: dense is ~6x BM25's p95 and fusion of the two is
+~7x, for worse accuracy. (An earlier run on a loaded machine showed 15x; that was the
+machine, not the retriever.)
 
 ****The baseline does not win.** It is a middle point on a precision/recall trade-off, not
 an optimum:
 
-- Larger chunks retrieve the right document more often (recall 0.961 vs 0.922) but
-  dilute it across more text, so the ideal document lands lower (nDCG 0.877 vs 0.891).
-- Smaller chunks do the opposite and cost 2.2x the latency.
-- Disabling overlap *lowers* nDCG while *raising* recall. The overlap window is
-  apparently carrying sentence context that helps ranking, without preventing a document
-  from being retrieved by either of its halves.
+- Larger chunks retrieve the right document more often (recall 0.877 vs 0.869) but
+  dilute it across more text, so the ideal document lands lower (nDCG 0.827 vs 0.832).
+- Smaller chunks do the opposite and cost 1.7x the latency.
+- Disabling overlap lowers nDCG (0.832 → 0.792) and recall with it (0.869 → 0.839).
+  The overlap window is apparently carrying sentence context that helps ranking, and on
+  this set nothing compensates for losing it — an earlier run showed recall rising, which
+  did not survive the question rewrite.
 
 The honest reading is that chunk size is the dominant lever here, ahead of the ranking
 model — which is the usual finding, and the reason the ablation varies chunking at all.
@@ -159,6 +162,70 @@ Choosing the baseline as "best" because it has the top nDCG would be selecting o
 metric rather than on the use case. For a gateway that shows the reader the retrieved
 passages, recall is the metric that matters: a missing document cannot be shown to
 anyone.
+
+## The templated question set
+
+The first 65-question set had all 51 single-hop questions written as one template with the
+tail swapped:
+
+    In the FastAPI documentation, what is described regarding <topic>?
+
+Fifty-one copies of one stem. "What is described regarding burger conclusion?" is not a
+sentence anyone types. Three of the tails were also run together — `gzipmiddleware`,
+`jinja2templates` — because they had been pasted out of markdown link text.
+
+That is a validity defect on its own, so the questions were rewritten by hand into mixed
+register: why, how-to, difference, and counterintuitive. Answers and their documents were
+left untouched, so the mechanical verifier still guards every row (65/65 after the
+rewrite).
+
+**The rewrite is confounded, and the two scores are not comparable.** The rewrites share
+more vocabulary with their targets than the template did:
+
+| overlap between question and… | templated | rewritten | de-echoed |
+|---|---|---|---|
+| the whole target document | 0.579 | 0.775 | 0.746 |
+| the answer sentence specifically | 0.088 | 0.287 | 0.253 |
+
+All three columns use one consistent metric. An earlier session reported 0.168/0.392 for
+the first two columns under a different stopword list — same ordering, different scale,
+which is itself a warning about quoting these to three decimals.
+
+Some of the overlap is unavoidable — you cannot ask about `HTTPException` without saying
+it, and a real user would. But part of it is that the questions were written immediately
+after reading the answers. So a third pass reworded the five worst offenders (`q021`,
+`q026`, `q035`, `q032`, `q046`) to keep the topic words a user would say while dropping
+phrasing taken from the answer sentence.
+
+One of those five failed on the table: the first rewording of `q021` shared no vocabulary
+with its document and missed the top 10 entirely — a question that tests the author's
+phrasing rather than the retriever. Three candidates were measured for answer-overlap and
+retrieval rank, and the one at overlap 0.38 / rank 3 was taken over one at rank 1 /
+overlap 0.56, because the rank-1 candidate defeated the purpose. The de-echo cost 0.02
+nDCG (0.852 → 0.832), which is the honest price of the removed leak, and small.
+
+What survives all three stages is the **ordering of the retrievers**:
+
+| retriever | templated | rewritten | de-echoed |
+|---|---|---|---|
+| `bm25` | 0.822 | 0.852 | **0.832** |
+| `semantic+bm25` | 0.741 | 0.814 | 0.811 |
+| `hybrid` (BM25 + TF-IDF) | 0.784 | 0.796 | 0.762 |
+| `semantic_250c` | 0.665 | 0.784 | 0.782 |
+| `semantic` | 0.434 | 0.745 | 0.739 |
+
+BM25 wins on all three sets. But each validity fix narrows its lead over the best dense
+variant: 0.157 → 0.068 → 0.050. The published claim was the first of those; the current
+one is the last, and the direction of travel is worth stating plainly.
+
+One slice goes the other way: on the multi-hop questions alone, `semantic_250c` scores
+0.695 against BM25's 0.570 — the only slice where dense wins outright. Questions whose
+vocabulary is spread across two documents favour an embedding over exact terms, which is
+consistent with the rest of the table rather than an exception to it.
+
+The fix is a **blind authoring pass** — questions written from document titles and section
+headings by someone who has not read the answers. Until that exists, treat the absolute
+scores as upper bounds and the comparison as indicative rather than settled.
 
 ## Abstention on questions the corpus cannot answer
 
@@ -190,7 +257,7 @@ address the question.
 Two candidate gates were measured and both are rejected. Both distributions overlap, so
 a threshold would abstain on good questions while still answering bad ones:
 
-| signal | answerable (n=63) | unanswerable (n=8) | separates? |
+| signal | answerable (n=65) | unanswerable (n=8) | separates? |
 |---|---|---|---|
 | question ↔ retrieved passage overlap | 0.167 – 0.667 | 0.000 – 0.500 | no |
 | question ↔ generated answer overlap | 0.000 – 0.667 (median 0.200) | 0.000 – 0.200 | no |
@@ -210,17 +277,17 @@ one. End to end, through the real pipeline:
 | threshold | answerable answered | unanswerable caught |
 |---|---|---|
 | **-9.0 (default)** | **65/65 (100%)** | **6/8 (75%)** |
-| -6.0 | 63/65 (97%) | 6/8 (75%) |
-| -3.0 | 59/65 (91%) | 8/8 (100%) |
+| -6.0 | 62/65 (95%) | 6/8 (75%) |
+| -3.0 | 57/65 (88%) | 8/8 (100%) |
 
-The default row was re-measured after the single-hop questions were rewritten from one
-repeated template into natural language, and it did not move. That is the useful result: a
-gate tuned on one set of phrasings and then re-measured on a different one is the only kind
-of number in this table worth trusting.
+The default row has now survived two question rewrites without moving: once when the
+templated set became natural questions, and again when five of those were reworded to
+remove answer phrasing. A gate tuned on one set of phrasings and then re-measured on two
+different ones is the only kind of number in this table worth trusting.
 
 **0% → 75% abstention, at no measured cost to answerable questions.** The two it still
 answers are the ones the corpus does partially discuss; tightening to -3.0 catches them
-too, at the price of withholding one legitimate answer in nine.
+too, at the price of withholding 8 legitimate answers in 65 — roughly one in eight.
 
 ```bash
 uv run python scripts/abstention.py --relevance --json docs/results/abstention_gated.json

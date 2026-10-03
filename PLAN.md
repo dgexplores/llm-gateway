@@ -80,13 +80,13 @@ fusion, an evaluation harness whose CI gate refuses to run over unverified quest
 FastAPI service, a zero-build UI, claim-level verification with abstention, LangChain and
 LightRAG adapters, a multi-stage container image, and a measured result set.
 
-Measured, on 63 mechanically verified questions over 155 documents:
+Measured, on 65 mechanically verified questions over 155 documents:
 
 | retriever | nDCG@10 | recall@10 | p95 ms |
 |---|---|---|---|
 | `none` (control) | 0.000 | 0.000 | 0.0 |
-| `bm25` (baseline) | **0.869** | 0.905 | 2.7 |
-| `hybrid` (BM25 + TF-IDF) | 0.852 | 0.905 | 5.4 |
+| `bm25` (baseline) | **0.832** | 0.869 | 2.8 |
+| `hybrid` (BM25 + TF-IDF) | 0.762 | 0.815 | 5.5 |
 
 ### Two limitations, both measured
 
@@ -95,8 +95,8 @@ gateway answered all eight unanswerable questions and reported all eight as grou
 abstention. Two lexical gates were measured and rejected for overlapping distributions. A
 cross-encoder relevance gate, the third attempt, catches **75%** of them while still
 answering **100%** of answerable questions. Off by default because it costs a model
-download, ~10 ms per query, and a tighter threshold withholds one legitimate answer in
-nine. The measurement and the trade-off are in `docs/RESULTS.md`.
+download, ~10 ms per query, and a tighter threshold withholds 8 legitimate answers
+in 65 — roughly one in eight. The measurement and the trade-off are in `docs/RESULTS.md`.
 
 **2. The NLI verifier is not usable as a drop-in.** It rejects every true claim (0/60)
 because it collapses on the ~1,100-character multi-source context the pipeline supplies:
@@ -111,10 +111,12 @@ rather than build a gate that does not work.
 - **Nothing, here — this was wrong when written.** The semantic path was excluded on the
   assumption that dense retrieval needs an API key. It does not: `all-MiniLM-L6-v2`
   downloads and runs locally. The LangChain adapter is now measured in the ablation
-  (0.655 nDCG@10 against BM25's 0.869) and the LightRAG adapter remains unmeasured
+  (0.782 nDCG@10 against BM25's 0.832) and the LightRAG adapter remains unmeasured
   because it needs an LLM for entity extraction at index time.
-- **A Docker build.** The image and compose file are written but Docker is not installed
-  here, so the image has never been built. The docs say so.
+- **A Docker build.** The image has since been built and run (Docker 29.5 / Colima), which
+  surfaced four real bugs — exec-form `CMD ["sh -c", ...]`, a root-owned corpus volume,
+  missing `serve` extra, and a relocated venv breaking shebangs. Fixed and verified healthy
+  in ~15 s; see `docs/RESULTS.md` and the README.
 
 ## Resume bullets
 
@@ -124,15 +126,15 @@ same list as the things it does.
 
 - Built an LLM reliability gateway: multi-provider failover with circuit breaking,
   token/cost accounting, and claim-level citation verification. BM25 retrieval over
-  1,448 chunks from 155 documents scores **nDCG@10 0.869, recall@10 0.905, p95 2.7 ms**
-  against a no-retrieval control at 0.000, on 63 questions.
+  1,448 chunks from 155 documents scores **nDCG@10 0.832, recall@10 0.869, p95 2.8 ms**
+  against a no-retrieval control at 0.000, on 65 questions.
 - Measured what the response cache is worth instead of asserting it: **55.6% hit rate**
   on a Zipf-shaped workload, 79 of 142 provider calls avoided. Found the cache was
   implemented, unit-tested, and **never wired into the client**; a unit test of a class
   cannot tell you nothing calls it.
 - Benchmarked **9 retrieval configurations** including dense retrieval with a local
-  embedding model. Dense scores 0.784 nDCG@10 against BM25's 0.852, and **both rank-fusion
-  variants lose** — BM25+TF-IDF 0.796, BM25+dense 0.814 — because equal-weight fusion
+  embedding model. Dense scores 0.782 nDCG@10 against BM25's 0.832, and **both rank-fusion
+  variants lose** — BM25+TF-IDF 0.762, BM25+dense 0.811 — because equal-weight fusion
   averages in a weaker member rather than using it to break ties. Chunk size turned out to
   be worth a third of dense's accuracy (0.465 at 1,200c vs 0.655 at 250c), so the tuned
   number is the one reported.
@@ -147,25 +149,26 @@ same list as the things it does.
   cross-encoder relevance gate, the third attempt, reaches **75%** abstention while
   answering **100%** of answerable questions. Opt-in, with the trade-off documented rather
   than imposed.
-- CI runs lint, 380 tests, a retrieval gate that refuses to execute without a verified
+- CI runs lint, 388 tests, a retrieval gate that refuses to execute without a verified
   golden set, the ablation, and the abstention measurement.
 
 ### Not claimed
 
 - **The single-hop questions were authored having read their answers.** They replaced one
   template repeated 51 times, which had been suppressing dense retrieval (0.434 → 0.745).
-  But the rewrite shares 39% of its content words with the answer sentence versus 17%
-  before, so the absolute scores are upper bounds and only the retriever ordering is
-  trustworthy. A blind authoring pass from document titles would settle it.
+  A third pass de-echoed the five worst answer-phrasing leaks (answer-overlap 0.29 → 0.25,
+  BM25 0.852 → 0.832). The absolute scores remain upper bounds and only the retriever
+  ordering — BM25 ahead on all three question sets, by a shrinking 0.157 → 0.068 → 0.050 —
+  is trustworthy. A blind authoring pass from document titles would settle it.
 - **Multi-hop questions, but not multi-hop reasoning.** 14 questions each need two
   documents retrieved, enforced by the builder rather than assumed: neither document alone
-  reaches the support threshold. They score 0.570 against single-hop's 0.891, a 0.32 gap
+  reaches the support threshold. They score 0.570 against single-hop's 0.904, a 0.33 gap
   that a difficulty label is supposed to reveal. None asks the reader to chain an inference
   across the two documents, so this measures retrieval difficulty, not reasoning.
 - **Dense retrieval was measured, and lost.** With a local `all-MiniLM-L6-v2` it scores
-  0.655 nDCG@10 against BM25's 0.869, and fusing it in scores 0.795. Chunk size was
-  worth a third of dense's accuracy (0.465 at 1,200c vs 0.655 at 250c), so the tuned
-  number is the one reported. The LangChain adapter is measured; the LightRAG adapter is
+  0.782 nDCG@10 against BM25's 0.832, and fusing it in scores 0.811. Chunk size was
+  worth a third of dense's accuracy on the early set (0.434 at 1,200c), so the tuned
+  250c number is the one reported. The LangChain adapter is measured; the LightRAG adapter is
   not, because it needs an LLM for entity extraction at index time.
-- **No verified Docker build.** The image and compose file exist; Docker is not installed
-  in the environment they were written in, so the image has never been built.
+- **Docker is verified since.** Built and run under Colima; four startup bugs found and fixed.
+  The remaining container gap is the Redis profile, which has not been exercised.

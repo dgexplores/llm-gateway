@@ -33,17 +33,19 @@ DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 #
 #   threshold   answerable answered   unanswerable caught
 #   -9.0        65/65  (100%)         6/8  (75%)
-#   -6.0        63/65  ( 97%)         6/8  (75%)
-#   -3.0        59/65  ( 91%)         8/8  (100%)
+#   -6.0        62/65  ( 95%)         6/8  (75%)
+#   -3.0        57/65  ( 88%)         8/8  (100%)
 #
 # -9.0 is the default because it costs nothing measured: it answers every one of the 65
 # questions the corpus can address while catching three quarters of the eight it cannot.
 # That row was re-measured after the question set was rewritten from one repeated template
-# into natural questions, and it did not move — which is the useful result, since a gate
-# tuned on one phrasing and then re-measured on another is the only kind of number here
-# worth trusting. -6.0 buys nothing and loses two questions. -3.0 catches the remaining two
-# at the price of withholding one legitimate answer in seven: defensible for a tool whose
-# thesis is knowing when it does not know, not something to impose by default.
+# into natural questions, and again after five of those were reworded to remove answer
+# phrasing — and it did not move either time, which is the useful result, since a gate
+# tuned on one phrasing and then re-measured on two different ones is the only kind of
+# number here worth trusting. -6.0 buys nothing and loses three questions. -3.0 catches
+# the remaining two at the price of withholding 8 legitimate answers in 65: defensible
+# for a tool whose thesis is knowing when it does not know, not something to impose
+# by default.
 #
 # An earlier estimate of this curve, taken by scoring only the top-ranked passage,
 # suggested -9.0 would withhold 7 of 63 answerable questions. It withholds none, because

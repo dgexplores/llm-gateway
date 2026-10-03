@@ -13,7 +13,7 @@ and they are **not** equivalent to it:
 
 | Adapter | Status | The catch |
 |---|---|---|
-| `gateway.rag.langchain.LangChainRetriever` | **measured** in the ablation with a local `all-MiniLM-L6-v2`, no API key | Loses to BM25 on this corpus (0.784 vs 0.852 nDCG@10, tuned) — and it lost by much more than this until the templated question set was fixed, which was suppressing it. That is the expected result for documentation queries built from exact identifiers, and the reasoning is in `docs/RESULTS.md`. |
+| `gateway.rag.langchain.LangChainRetriever` | **measured** in the ablation with a local `all-MiniLM-L6-v2`, no API key | Loses to BM25 on this corpus (0.782 vs 0.832 nDCG@10, tuned) — and it lost by much more than this until the templated question set was fixed, which was suppressing it. Each validity fix since has narrowed the lead (0.157 → 0.068 → 0.050). That is the expected result for documentation queries built from exact identifiers, and the reasoning is in `docs/RESULTS.md`. |
 | `gateway.rag.lightrag_retriever.LightRAGRetriever` | parsing and async bridge tested against a fake | LightRAG returns a **synthesized context string**, not scored chunks with document ids, so per-claim citation cannot work. Its chunks carry an empty `doc_id` and `metadata={"synthesized": True}` rather than a fabricated one. No faithful end-to-end run: LightRAG extracts entities with an LLM, and a stub produces zero entities. |
 
 ```bash
@@ -21,18 +21,20 @@ uv sync --extra rag --extra langchain   # semantic retrieval (local embedding mo
 uv sync --extra lightrag   # knowledge-graph retrieval (heavy; needs a real model)
 ```
 
-> **Results published.** BM25 reaches **nDCG@10 0.822** and **recall@10 0.854** at
-> 2.4 ms p95 over 1,448 chunks, on a corpus pinned by commit, against a no-retrieval
+> **Results published.** BM25 reaches **nDCG@10 0.832** and **recall@10 0.869** at
+> 2.8 ms p95 over 1,448 chunks, on a corpus pinned by commit, against a no-retrieval
 > control at 0.000. 65 questions, *mechanically verified* — a verifier proven to reject
 > fabricated answers checked each one against the document it cites. Difficulty is measured
-> rather than assumed: multi-hop questions score **0.570** against single-hop's **0.929**.
+> rather than assumed: multi-hop questions score **0.570** against single-hop's **0.904**.
 >
 > **These numbers were revised after the questions were.** All 51 single-hop questions were
 > originally one template with the tail swapped, which was both unnatural and *biased against
 > dense retrieval* — it pushed dense from 0.434 to 0.745 once fixed. The rewrite is itself
 > confounded, because the new questions were written after reading their answers, so the
-> two sets are **not score-comparable**. The retriever *ordering* holds across both; the
-> absolute numbers are upper bounds. `docs/RESULTS.md` has both tables and the reasoning.
+> sets are **not score-comparable** — and a third pass de-echoed the five worst offenders
+> (BM25 0.852 → 0.832, the honest price of the removed leak). The retriever *ordering*
+> holds across all three stages; the absolute numbers are upper bounds. `docs/RESULTS.md`
+> has all three tables and the reasoning.
 >
 > Both a limitation and its fix are published in [docs/RESULTS.md](docs/RESULTS.md). The
 > gateway could not detect a question its corpus cannot answer — 0% abstention, with every
@@ -255,13 +257,13 @@ extra stays optional.
 
 ## What the numbers are worth
 
-BM25 scores nDCG@10 **0.891**, recall@10 **0.922**, MRR **0.846** over 51 questions and
+BM25 scores nDCG@10 **0.832**, recall@10 **0.869**, MRR **0.743** over 65 questions and
 1,448 chunks, with a no-retrieval control scoring 0.000.
 
 Two things keep this honest, and both are in
 [docs/RESULTS.md](docs/RESULTS.md) in full:
 
-**The verifier is shown to reject.** It accepted 51 of 51, which is exactly the result
+**The verifier is shown to reject.** It accepted 65 of 65, which is exactly the result
 a verifier that does nothing would also produce. So `tests/test_verify_set.py` asserts
 that a fabricated answer, an answer citing the wrong document, a broken label, an empty
 answer, and a near-duplicate pair are all rejected. Without those controls the headline
